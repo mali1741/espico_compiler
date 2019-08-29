@@ -1,0 +1,696 @@
+
+;0 char snake [ 100 ] ;
+_eatx word ?
+_eaty word ?
+
+;1 char eatx , eaty ;
+_snake_length word ?
+
+;2 char snake_length ;
+
+;3 char snake_spr [ ] = { 0x11 , 0x10 , ...
+
+;4 char eat_spr [ ] = { 0x22 , 0x20 , 0x...
+
+;5 char snake_clr [ ] = { 0xbb , 0xb0 , ...
+_snake_dir word ?
+
+;6 char snake_dir ;
+_i word ?
+_key word ?
+_game_end word ?
+
+;7 int i , key , game_end ;
+
+;15 }
+
+;32 }
+
+;45 }
+
+;54 }
+
+;103 }
+JMP _end_main
+_main:
+
+;105 void main ( ) {
+CALL _init_game
+
+;106 init_game ( ) ;
+start_while_21:
+LDC R1,1
+CMP R1,0
+JZ end_while_21
+
+;107 while ( 1 ) {
+LDI R1,(_game_end)
+CMP R1,0
+JZ end_if_22
+
+;108 if ( game_end ) {
+CALL _restart
+MOV R2,R1
+
+;109 restart ( ) ;
+
+;110 }
+end_if_22:
+CALL _action
+
+;111 action ( ) ;
+CALL _redraw
+
+;112 redraw ( ) ;
+LDC R2,200
+PUSH R2
+CALL _delay
+INC R0,2
+
+;113 delay ( 200 ) ;
+
+;114 }
+JMP start_while_21
+end_while_21:
+RET
+_end_main:
+LDI R15,0
+STI (#END),R15
+CALL _main
+HLT
+_putimage:
+MOV R1,R0
+LDC R2,2
+ADD R1,R2
+DRWIM R1
+RET
+_delay:
+
+;9 void delay ( int n ) {
+LDC R1,1
+LDI R2,(2+R0) ;n
+STIMER R1,R2
+
+;10 settimer ( 1 , n ) ;
+start_while_0:
+LDC R1,1
+GTIMER R1
+CMP R1,0
+JZ end_while_0
+
+;11 while ( gettimer ( 1 ) ) {
+LDI R1,(_key)
+LDC R2,0
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_1
+
+;12 if ( key == 0 )
+GETJ R2
+STI (_key),R2
+
+;13 key = getkey ( ) ;
+end_if_1:
+
+;14 }
+JMP start_while_0
+end_while_0:
+RET
+_init_game:
+
+;17 void init_game ( ) {
+LDC R2,0
+STI (_game_end),R2
+
+;18 game_end = 0 ;
+LDC R2,6
+STI (_snake_length),R2
+
+;19 snake_length = 6 ;
+LDC R2,0
+STI (_snake_dir),R2
+
+;20 snake_dir = 0 ;
+LDC R1,0
+LDC R2,1
+STC (_snake+R1),R2
+
+;21 snake [ 0 ] = 1 ;
+LDC R1,1
+LDC R2,3
+STC (_snake+R1),R2
+
+;22 snake [ 1 ] = 3 ;
+LDC R1,2
+LDC R2,1
+STC (_snake+R1),R2
+
+;23 snake [ 2 ] = 1 ;
+LDC R1,3
+LDC R2,2
+STC (_snake+R1),R2
+
+;24 snake [ 3 ] = 2 ;
+LDC R1,4
+LDC R2,1
+STC (_snake+R1),R2
+
+;25 snake [ 4 ] = 1 ;
+LDC R1,5
+LDC R2,1
+STC (_snake+R1),R2
+
+;26 snake [ 5 ] = 1 ;
+LDC R1,6
+LDC R2,1
+STC (_snake+R1),R2
+
+;27 snake [ 6 ] = 1 ;
+LDC R1,7
+LDC R2,1
+STC (_snake+R1),R2
+
+;28 snake [ 7 ] = 1 ;
+LDC R2,10
+LDC R3,30
+RAND R3
+ADD R2,R3
+STI (_eatx),R2
+
+;29 eatx = 10 + rnd ( 30 ) ;
+LDC R2,10
+LDC R3,30
+RAND R3
+ADD R2,R3
+STI (_eaty),R2
+
+;30 eaty = 10 + rnd ( 30 ) ;
+LDI R2,_eat_spr
+PUSH R2
+LDC R2,(_eatx)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,(_eaty)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,3
+PUSH R2
+LDC R2,3
+PUSH R2
+CALL _putimage
+INC R0,10
+
+;31 putimage ( eat_spr , eatx * 3 , eaty...
+RET
+_restart:
+
+;34 int restart ( ) {
+LDC R1,4
+LDC R2,8
+SETX R1
+SETY R2
+
+;35 gotoxy ( 4 , 8 ) ;
+LDI R1,_str2
+PUTS R1
+
+;36 puts ( "game over" ) ;
+LDC R1,4
+LDC R2,9
+SETX R1
+SETY R2
+
+;37 gotoxy ( 4 , 9 ) ;
+LDI R1,_str3
+PUTS R1
+
+;38 puts ( "score " ) ;
+LDC R1,(_snake_length)
+LDC R2,2
+DIV R1,R2
+LDC R2,3
+SUB R1,R2
+PUTN R1
+
+;39 putn ( snake_length / 2 - 3 ) ;
+start_while_4:
+GETJ R1
+LDC R2,0
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_while_4
+
+;40 while ( getkey ( ) == 0 ) {
+LDC R2,0
+STI (_i),R2
+
+;41 i = 0 ;
+
+;42 } ;
+JMP start_while_4
+end_while_4:
+CLS
+
+;43 cls ( ) ;
+CALL _init_game
+
+;44 init_game ( ) ;
+RET
+_redraw:
+
+;47 void redraw ( ) {
+LDC R2,0
+STI (_i),R2
+
+;48 i = 0 ;
+LDI R1,(_i)
+start_for_5:
+LDI R1,(_i)
+LDC R2,(_snake_length)
+CMP R1,R2
+LDF R1,2
+CMP R1,0
+JZ end_for_5
+
+;49 for ( i ; i < snake_length ; i + + )...
+LDI R2,_snake_spr
+PUSH R2
+LDI R2,(_i)
+LDC R2,(_snake+R2)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDI R2,(_i)
+LDC R3,1
+ADD R2,R3
+LDC R2,(_snake+R2)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,3
+PUSH R2
+LDC R2,3
+PUSH R2
+CALL _putimage
+INC R0,10
+
+;50 putimage ( snake_spr , snake [ i ] *...
+LDI R1,(_i)
+INC _i
+
+;51 i + + ;
+INC _i
+JMP start_for_5
+end_for_5:
+
+;52 }
+LDI R2,_snake_clr
+PUSH R2
+LDC R2,(_snake_length)
+LDC R2,(_snake+R2)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,(_snake_length)
+LDC R3,1
+ADD R2,R3
+LDC R2,(_snake+R2)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,3
+PUSH R2
+LDC R2,3
+PUSH R2
+CALL _putimage
+INC R0,10
+
+;53 putimage ( snake_clr , snake [ snake...
+RET
+_action:
+
+;56 void action ( ) {
+LDI R1,(_key)
+LDC R2,1
+CMP R1,R2
+LDF R1,1
+LDC R2,(_snake_dir)
+LDC R3,3
+CMP R2,R3
+LDF R2,5
+ANDL R1,R2
+CMP R1,0
+JZ end_if_6
+
+;57 if ( ( key == 1 ) & & ( snake_dir !=...
+LDC R2,1
+STI (_snake_dir),R2
+end_if_6:
+
+;58 snake_dir = 1 ;
+LDI R1,(_key)
+LDC R2,4
+CMP R1,R2
+LDF R1,1
+LDC R2,(_snake_dir)
+LDC R3,0
+CMP R2,R3
+LDF R2,5
+ANDL R1,R2
+CMP R1,0
+JZ end_if_7
+
+;59 else if ( ( key == 4 ) & & ( snake_d...
+LDC R2,2
+STI (_snake_dir),R2
+end_if_7:
+
+;60 snake_dir = 2 ;
+LDI R1,(_key)
+LDC R2,2
+CMP R1,R2
+LDF R1,1
+LDC R2,(_snake_dir)
+LDC R3,1
+CMP R2,R3
+LDF R2,5
+ANDL R1,R2
+CMP R1,0
+JZ end_if_8
+
+;61 else if ( ( key == 2 ) & & ( snake_d...
+LDC R2,3
+STI (_snake_dir),R2
+end_if_8:
+
+;62 snake_dir = 3 ;
+LDI R1,(_key)
+LDC R2,8
+CMP R1,R2
+LDF R1,1
+LDC R2,(_snake_dir)
+LDC R3,2
+CMP R2,R3
+LDF R2,5
+ANDL R1,R2
+CMP R1,0
+JZ end_if_9
+
+;63 else if ( ( key == 8 ) & & ( snake_d...
+LDC R2,0
+STI (_snake_dir),R2
+end_if_9:
+
+;64 snake_dir = 0 ;
+LDC R2,0
+STI (_key),R2
+
+;65 key = 0 ;
+LDC R2,(_snake_length)
+LDC R3,1
+ADD R2,R3
+STI (_i),R2
+
+;66 i = snake_length + 1 ;
+LDC R1,(_snake_dir)
+LDC R2,0
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_10
+
+;67 if ( snake_dir == 0 ) {
+LDC R1,0
+LDC R2,0
+LDC R2,(_snake+R2)
+LDC R3,1
+ADD R2,R3
+STC (_snake+R1),R2
+
+;68 snake [ 0 ] = snake [ 0 ] + 1 ;
+LDC R1,0
+LDC R1,(_snake+R1)
+LDC R2,41
+CMP R2,R1
+LDF R1,4
+CMP R1,0
+JZ end_if_11
+
+;69 if ( snake [ 0 ] >= 41 ) {
+LDC R1,0
+LDC R2,1
+STC (_snake+R1),R2
+
+;70 snake [ 0 ] = 1 ; }
+end_if_11:
+
+;71 }
+JMP end_else_10
+end_if_10:
+LDC R1,(_snake_dir)
+LDC R2,1
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_12
+
+;72 else if ( snake_dir == 1 ) {
+LDC R1,1
+LDC R2,1
+LDC R2,(_snake+R2)
+LDC R3,1
+SUB R2,R3
+STC (_snake+R1),R2
+
+;73 snake [ 1 ] = snake [ 1 ] - 1 ;
+LDC R1,1
+LDC R1,(_snake+R1)
+LDC R2,1
+CMP R1,R2
+LDF R1,4
+CMP R1,0
+JZ end_if_13
+
+;74 if ( snake [ 1 ] <= 1 ) {
+LDC R1,1
+LDC R2,41
+STC (_snake+R1),R2
+
+;75 snake [ 1 ] = 41 ; }
+end_if_13:
+
+;76 }
+JMP end_else_12
+end_if_12:
+LDC R1,(_snake_dir)
+LDC R2,2
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_14
+
+;77 else if ( snake_dir == 2 ) {
+LDC R1,0
+LDC R2,0
+LDC R2,(_snake+R2)
+LDC R3,1
+SUB R2,R3
+STC (_snake+R1),R2
+
+;78 snake [ 0 ] = snake [ 0 ] - 1 ;
+LDC R1,0
+LDC R1,(_snake+R1)
+LDC R2,1
+CMP R1,R2
+LDF R1,4
+CMP R1,0
+JZ end_if_15
+
+;79 if ( snake [ 0 ] <= 1 ) {
+LDC R1,0
+LDC R2,41
+STC (_snake+R1),R2
+
+;80 snake [ 0 ] = 41 ; }
+end_if_15:
+
+;81 }
+JMP end_else_14
+end_if_14:
+LDC R1,(_snake_dir)
+LDC R2,3
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_16
+
+;82 else if ( snake_dir == 3 ) {
+LDC R1,1
+LDC R2,1
+LDC R2,(_snake+R2)
+LDC R3,1
+ADD R2,R3
+STC (_snake+R1),R2
+
+;83 snake [ 1 ] = snake [ 1 ] + 1 ;
+LDC R1,1
+LDC R1,(_snake+R1)
+LDC R2,41
+CMP R2,R1
+LDF R1,4
+CMP R1,0
+JZ end_if_17
+
+;84 if ( snake [ 1 ] >= 41 ) {
+LDC R1,1
+LDC R2,1
+STC (_snake+R1),R2
+
+;85 snake [ 1 ] = 1 ; }
+end_if_17:
+
+;86 }
+end_if_16:
+end_else_14:
+end_else_12:
+end_else_10:
+LDC R1,0
+LDC R1,(_snake+R1)
+LDC R2,3
+MUL R1,R2
+LDC R2,1
+ADD R1,R2
+LDC R2,1
+LDC R2,(_snake+R2)
+LDC R3,3
+MUL R2,R3
+LDC R3,1
+ADD R2,R3
+GETPIX R1,R2
+LDC R2,1
+CMP R1,R2
+LDF R1,1
+CMP R1,0
+JZ end_if_18
+
+;87 if ( getpix ( snake [ 0 ] * 3 + 1 , ...
+LDC R2,1
+STI (_game_end),R2
+end_if_18:
+
+;88 game_end = 1 ;
+LDC R1,0
+LDC R1,(_snake+R1)
+LDC R2,(_eatx)
+CMP R1,R2
+LDF R1,1
+LDC R2,1
+LDC R2,(_snake+R2)
+LDC R3,(_eaty)
+CMP R2,R3
+LDF R2,1
+ANDL R1,R2
+CMP R1,0
+JZ end_if_19
+
+;89 if ( ( snake [ 0 ] == eatx ) & & ( s...
+LDC R2,2
+LDC R3,38
+RAND R3
+ADD R2,R3
+STI (_eatx),R2
+
+;90 eatx = 2 + rnd ( 38 ) ; ;
+LDC R2,2
+LDC R3,38
+RAND R3
+ADD R2,R3
+STI (_eaty),R2
+
+;91 eaty = 2 + rnd ( 38 ) ; ;
+LDI R2,_eat_spr
+PUSH R2
+LDC R2,(_eatx)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,(_eaty)
+LDC R3,3
+MUL R2,R3
+PUSH R2
+LDC R2,3
+PUSH R2
+LDC R2,3
+PUSH R2
+CALL _putimage
+INC R0,10
+
+;92 putimage ( eat_spr , eatx * 3 , eaty...
+LDC R1,(_snake_length)
+INC _snake_length
+
+;93 snake_length + + ;
+LDC R1,(_snake_length)
+INC _snake_length
+
+;94 snake_length + + ;
+
+;95 }
+end_if_19:
+start_while_20:
+LDI R1,(_i)
+LDC R2,1
+CMP R1,R2
+LDF R1,3
+CMP R1,0
+JZ end_while_20
+
+;96 while ( i > 1 ) {
+LDI R1,(_i)
+LDI R2,(_i)
+LDC R3,2
+SUB R2,R3
+LDC R2,(_snake+R2)
+STC (_snake+R1),R2
+
+;97 snake [ i ] = snake [ i - 2 ] ;
+LDI R1,(_i)
+DEC _i
+
+;98 i - - ;
+LDI R1,(_i)
+LDI R2,(_i)
+LDC R3,2
+SUB R2,R3
+LDC R2,(_snake+R2)
+STC (_snake+R1),R2
+
+;99 snake [ i ] = snake [ i - 2 ] ;
+LDI R1,(_i)
+DEC _i
+
+;100 i - - ;
+
+;101 }
+JMP start_while_20
+end_while_20:
+LDC R2,0
+STI (_i),R2
+
+;102 i = 0 ;
+RET
+_snake byte 100 dup(?)
+_snake_spr:
+DB 17,16,17,16,17,16
+_eat_spr:
+DB 34,32,34,32,34,32
+_snake_clr:
+DB 187,176,187,176,187,176
+_str2:
+DB "game over",0
+_str3:
+DB "score ",0

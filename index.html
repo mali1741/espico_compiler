@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<title>espico</title>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#7CCD7C">
+</head>
+<body>
+<link rel="stylesheet" type="text/css" href="style.css" />
+	<div id="menu">
+		<button onclick="onlyAsm();">asm</button>
+		<button onclick="main();">compile</button>
+		<button onclick="savebin();">save ops</button>
+		<button onclick="saveall();">save all</button>
+		<button onclick="spriteEditor.edit()">sprite</button>
+		<button onclick="listing();">listing</button>
+		<button onclick="debugVars();">debug</button>
+		<button onclick="viewHelp();">help</button>
+		<select id="lang" onchange="language=this.value">
+		  <option value="eng">ENG</option>
+		  <option value="rus">RUS</option>
+		</select>
+	</div>
+	<div id="container">
+		<div id="wrap-left">
+			<div class="header">memory</div>
+			<textarea id="ram"></textarea>
+			<div class="header">monitor</div>
+			<div id="monitor">
+				<div id="memoryPreviev">
+					<button onclick="setMemoryPage('m')">-</button>
+					<input id="memoryPage" value="00" onkeydown="if(event.keyCode==13)setMemoryPage(this.value)">
+					<button onclick="setMemoryPage('p')">+</button>
+					<textarea id="areaMemoryPrewiew" disabled="disabled"></textarea>
+				</div>
+				<canvas id="screen" width="256" height="320"></canvas>
+				<button onclick="cpu.step();document.getElementById('debug').value = cpu.debug();clearTimeout(timerId);">step</button>
+				<button onclick="run()">run</button>
+				<button onclick="clearTimeout(timerId);document.getElementById('debug').value = cpu.debug();">stop</button>
+				<br>
+				cpu speed,Hz
+				<select id="cpuSpeed" name="cpuSpeed" onchange="cpuSpeed=this.value">
+					<option value="8000">500 000</option>
+					<option value="3200">200 000</option>
+					<option selected value="1600">100 000</option>
+					<option value="800">50 000</option>
+					<option value="400">25 000</option>
+					<option value="160">10 000</option>
+					<option value="80">5 000</option>
+					<option value="16">1 000</option>
+					<option value="8">500</option>
+					<option value="2">100</option>
+				</select>
+				<textarea id="debug" disabled="disabled"></textarea>
+			</div>
+		</div>
+		<div id="wrap-right">
+			<div class="header">source</div>
+			<div id="editBlock">
+			<table id="edit-table">
+			<tr>
+				<td style="width:2em;position:relative;">
+					<div spellcheck="false" disabled id="line-count"></div>
+				</td><td style="width:100%;position:relative;">
+<textArea spellcheck="false" id="input" wrap="off">
+void main(){
+	puts("hello world");
+}
+</textArea>	
+			</td></tr>
+			</table>
+			</div>
+			<select id="example" name="example">
+				<option value="0">particle</option>
+				<option value="1">pi</option>
+				<option value="2">snake</option>
+				<option value="3">sprite</option>
+				<option value="4">maze generate</option>
+				<option value="5">platform</option>
+				<option value="6">asteroids</option>
+				<option value="7">space</option>
+				<option value="8">flappybird</option>
+				<option value="9">breackout</option>
+				<option value="10">mines</option>
+				<option value="11">dragon</option>
+			</select>
+			<button onclick="loadExample();">load examle</button>
+			<input type="file" id="files" name="files[]" multiple />
+			<output id="filelist"></output>
+
+			<script>
+				function handleFileSelect(evt) {
+					var files = evt.target.files; // FileList object
+									
+					// files is a FileList of File objects. List some properties.
+					var output = [];
+					for (var i = 0, f; f = files[i]; i++) {
+					output.push('<li><strong>', escape(f.name), '</strong> (', f.type || 'n/a', ') - ',
+						f.size, ' bytes, last modified: ',
+                  				f.lastModifiedDate ? f.lastModifiedDate.toLocaleDateString() : 'n/a',
+                  				'</li>');
+					var ext = f.name.split('.').pop();
+					if (ext === "c") {
+						var reader = new FileReader();
+						reader.onload = function() {
+				           	  var doc = document.getElementById("input");
+				           	  doc.value = reader.result;
+				           	  lineCount();
+						}
+				        	reader.readAsText(f);
+					} else if (ext === "p8" || ext === "epo") {
+						var reader = new FileReader();
+						reader.onload = function() {
+							// read sprite map
+				           	 //  var doc = document.getElementById("input");
+				           	 // doc.value = reader.result;
+				           	 // lineCount();
+							// spriteEditor.edit();
+							spriteEditor.loadHex(reader.result);
+							cpu.loadHex(reader.result);
+						}
+				        	reader.readAsText(f);
+					}
+					}
+					document.getElementById('filelist').innerHTML = '<ul>' + output.join('') + '</ul>';
+				}
+				
+				document.getElementById('files').addEventListener('change', handleFileSelect, false);
+			</script>
+		</div>
+	</div>
+	<div class="header">information</div>
+	<div id="alert"></div>
+	<br>
+	<div class="header" style="display:none">console input</div>
+	<div id="consoleInput" style="display:none" onkeypress="if(event.keyCode == 13)sendToConsole();">
+		<input id="textForConsole">
+		<button onclick="sendToConsole();">send</button>
+	</div>
+	<div id="div_wind1" class="div_wind">
+        <div id="drag_wind1" class="div_drag_wind" onmouseover="setup_mouse('div_wind1', 'drag_wind1');">
+            <div>
+               listing<div class="close" onclick="closewindow('div_wind1')">X</div>
+            </div>
+        </div>
+        <div class="content_wind">
+           <div id="disasm"></div>
+        </div>
+    </div>
+	<div id="div_wind2" class="div_wind">
+        <div id="drag_wind2" class="div_drag_wind" onmouseover="setup_mouse('div_wind2', 'drag_wind2');">
+            <div>
+               sprite editor<div class="close" onclick="closewindow('div_wind2')">X</div>
+            </div>
+        </div>
+        <div class="content_wind">
+           <div id="spriteEditior">
+			<canvas id="pixelearea" width="128" height="65" ondrop="pAreaOnDrop(event)" ondragover="pAreaAllowDrop(event)"></canvas>	
+			<div id="pixelpanel">
+				<input name="pixeled" type="radio" value="1" onchange="spriteEditor.setType(2)" checked id="check1"><label for="check1">S</label>
+				<input name="pixeled" type="radio" value="1" onchange="spriteEditor.setType(0)" checked id="check1"><label for="check1">P</label>
+				<input name="pixeled" type="radio" value="2" onchange="spriteEditor.setType(1)" id="check2"><label for="check2">F</label>
+			</div>
+			<button onclick="spriteEditor.clear();">cls</button>
+			<button onclick="spriteEditor.loadHex(cpu.exportHex('gfx'));">load</button>
+			<button onclick="cpu.loadHex(spriteEditor.exportHex('gfx'));">store</button>
+			<button onclick = "spriteEditor.scroll(0);" style = "width: 1.8em;">&#8594</button>
+			<button onclick = "spriteEditor.scroll(1);" style = "width: 1.8em;">&#8593</button> 
+			<button onclick = "spriteEditor.scroll(2);" style = "width: 1.8em;">&#8592</button>
+			<button onclick = "spriteEditor.scroll(3);" style = "width: 1.8em;">&#8595</button>
+			<b id="selectColor">[]</b>
+			<b id="spriteInfo"></b>
+			<b id="spriteFlags"></b>
+			<input type="checkbox" id="spriteFlag7" onclick="spriteEditor.flipSpriteFlag(7,this.checked)"/>
+			<input type="checkbox" id="spriteFlag6" onclick="spriteEditor.flipSpriteFlag(6,this.checked)"/>
+			<input type="checkbox" id="spriteFlag5" onclick="spriteEditor.flipSpriteFlag(5,this.checked)"/>
+			<input type="checkbox" id="spriteFlag4" onclick="spriteEditor.flipSpriteFlag(4,this.checked)"/>
+			<input type="checkbox" id="spriteFlag3" onclick="spriteEditor.flipSpriteFlag(3,this.checked)"/>
+			<input type="checkbox" id="spriteFlag2" onclick="spriteEditor.flipSpriteFlag(2,this.checked)"/>
+			<input type="checkbox" id="spriteFlag1" onclick="spriteEditor.flipSpriteFlag(1,this.checked)"/>
+			<input type="checkbox" id="spriteFlag0" onclick="spriteEditor.flipSpriteFlag(0,this.checked)"/>
+			<textarea id="spriteArea" onclick = "spriteEditor.selectAll();">{0,0,0}</textarea>
+		</div>
+        </div>
+    </div>
+	<div id="div_wind3" class="div_wind">
+        <div id="drag_wind3" class="div_drag_wind" onmouseover="setup_mouse('div_wind3', 'drag_wind3');">
+            <div>
+               debug<div class="close" onclick="closewindow('div_wind3')">X</div>
+            </div>
+        </div>
+        <div class="content_wind">
+			<div class="bar">
+			  <button onclick="viewDebug('debugVariable')">variable</button>
+			  <button onclick="viewDebug('debugActors')">actors</button>
+			</div>
+           <textarea id="debugVariable" class="debug" disabled="disabled"></textarea>
+		   <textarea id="debugActors" class="debug" disabled="disabled"></textarea>
+        </div>
+    </div>
+	<div id="div_wind4" class="div_wind" style="display:none">
+        <div id="drag_wind4" class="div_drag_wind" onmouseover="setup_mouse('div_wind4', 'drag_wind4');">
+            <div>
+               help<div class="close" onclick="closewindow('div_wind4')">X</div>
+            </div>
+        </div>
+        <div class="content_wind">
+			<pre id = "help_hl" style='color:#000020;background:#f6f8ff;margin:0;border: 1px solid #516399;height: 31em;overflow: auto;'>
+				char putchar(char);
+				int puts(char[]);
+				int putn(int);
+				int printf(char[], arg-list);
+				int random(int max);
+				int getchar();
+				int getkey();
+				/*key is KEY_UP, KEY_LEFT,
+				 KEY_DOWN, KEY_RIGHT, KEY_A, KEY_B*/
+				int getpixel(int x, int y);
+				int spritegetvalue(int n, int type);
+				/*type is 
+				 S_X, S_Y, S_SPEEDX, S_SPEEDY, 
+				 S_WIDTH, S_HEIGHT, S_IS_ONEBIT,
+				 S_ANGLE, S_LIVES, S_COLLISION,
+				 S_SOLID, S_GRAVITY, S_ON_COLLISION,
+				 S_ON_EXIT_SCREEN, S_IS_SCROLLED*/
+				int angbetweenspr(int n1, int n2);
+				int gettimer(int n);
+				void settimer(int n, int time);
+				void delayredraw();
+				void clearscreen();
+				void setpallette(int n, int r5g6b5);
+				void setcolor(int);
+				void scroll(int dir);
+				void putpixel(int x, int y);
+				void getsprite(int n, int address);
+				void putsprite(int n, int x, int y);
+				void spritesetvalue(int n, int type,
+				 int value);
+				int getspriteinxygettileinxy(int x,
+				 int y);
+				void setimagesize(int size);
+				void gotoxy(int x, int y);
+				void line(int x, int y, int x1, int y1);
+				void putimage(int address, int x,
+				 int y, int w, int h);
+				void putimage1bit(int address, int x,
+				 int y, int w, int h);
+				*int malloc(int);
+				void free(*int);
+				void setparticle(int gravity, int count,
+				 int time);
+				void setemitter(int time, int dir,
+				 int dir1, int speed);
+				void drawparticle(int x, int y,
+				 int color);
+				void loadtile(int adress, int imgwidth,
+				 int imgheight, int width, int height);
+				void drawtile(int x, int y);
+				 int gettileinxy(int x, int y);
+			</pre>
+        </div>
+    </div>
+	<a href="https://github.com/corax89/game_engine_for_esp8266_with_compiler" class="github-corner" aria-label="View source on GitHub">
+		<svg width="65" height="65" viewBox="0 0 250 250" style="fill:#516399; color:#fff; position: absolute; top: 0; border: 0; right: 0;" aria-hidden="true">
+			<path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
+			<path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path>
+			<path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path>
+		</svg>
+	</a>
+	<style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
+	<script type="text/javascript" src="FileSaver.js"></script>
+	<script type="text/javascript" src="asm.js"></script>
+	<script type="text/javascript" src="cpu.js"></script>
+	<script type="text/javascript" src="spriteEditor.js"></script>
+	<script type="text/javascript" src="compiler.js"></script>
+	<script type="text/javascript" src="font.js"></script>
+	<script type="text/javascript" src="ui.js"></script>
+	<script type="text/javascript" src="example.js"></script>
+</body>
+</html>
