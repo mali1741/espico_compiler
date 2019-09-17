@@ -1208,6 +1208,7 @@ function Cpu(){
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						reg[reg1] = reg[reg2];
+						setFlags(reg[reg1]);
 						break;
 					case 0x08:
 						//LDIAL R,(int+R*2)	08 RR XXXX
@@ -1370,6 +1371,14 @@ function Cpu(){
 							writeInt(reg[0], reg[j]);
 						}
 						break;
+					case 0x84:
+						// PUSH int		84 00 XXXX
+						reg[0] -= 2;
+						writeInt(reg[0], readInt(pc));
+						pc += 2;
+						break;
+					break;
+			
 				}
 				break;
 			case 0x90:
@@ -1831,7 +1840,7 @@ function Cpu(){
 							case 0x10:
 								// GETJ R			D21R
 								reg1 = (op2 & 0xf);
-								reg[reg1] = globalJKey;
+								reg[reg1] = setFlags(globalJKey);
 								break;
 						}
 						break;
@@ -1865,12 +1874,12 @@ function Cpu(){
 							case 0x30:
 								// GFCLR R			D43R
 								reg1 = op2 & 0xf;
-								reg[reg1] = color;
+								reg[reg1] = setFlags(color);
 								break;
 							case 0x40:
 								// GBCLR R			D44R
 								reg1 = op2 & 0xf;
-								reg[reg1] = bgcolor;
+								reg[reg1] = setFlags(bgcolor);
 								break;
 							case 0x50:
 								// ISIZE			D45R
@@ -1945,7 +1954,7 @@ function Cpu(){
 						// FGET R     D50R
 						reg1 = (op2 & 0xf0) >> 4; //sprite
 						reg2 = op2 & 0xf; // flag
-						if (reg1 == 0) reg[reg2] = getSpriteFlag(reg[reg2]);
+						if (reg1 == 0) reg[reg2] = setFlags(getSpriteFlag(reg[reg2]));
 						else setSpriteFlag(reg[reg1], reg[reg2]);
 						break;
 					case 0xD6:
@@ -1975,12 +1984,12 @@ function Cpu(){
 							// DPART R 		D7 2R
 							drawParticles(readInt(reg2 + 8), readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
 						else if((op2 & 0xf0) == 0x50)
-							reg[reg1] = distancepp(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
+							reg[reg1] = setFlags(distancepp(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2)));
 						else if((op2 & 0xf0) == 0x60)
 							animateParticles();
 						else if((op2 & 0xf0) == 0x70)
 							// MPARTC R 		D7 7R
-							reg[reg1] = makeParticleColor(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
+							reg[reg1] = setFlags(makeParticleColor(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2)));
 						break;
 					case 0xD8:
 						// SCROLL R,R		D8RR
@@ -1994,19 +2003,19 @@ function Cpu(){
 						// GETPIX R,R		D9RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-						reg[reg1] = display.getPixel(reg[reg1], reg[reg2]);
+						reg[reg1] = setFlags(display.getPixel(reg[reg1], reg[reg2]));
 						break;
 					case 0xDA:
 						// ATAN2 R,R		DA RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-	  					reg[reg1] = Math.floor(Math.atan2(reg[reg1], reg[reg2]) * 57.4);
+	  					reg[reg1] = setFlags(Math.floor(Math.atan2(reg[reg1], reg[reg2]) * 57.4));
 						break;
 					case 0xDB:
 						// GACTXY R,R		DB RR
 						reg1 = (op2 & 0xf0) >> 4;//num
 						reg2 = op2 & 0xf;//speed y
-                                                reg[reg1] = getActorInXY(reg[reg1],reg[reg2]);
+                                                reg[reg1] = setFlags(getActorInXY(reg[reg1],reg[reg2]));
 						break;
 					case 0xDC:
 						// ACTGET R,R		DC RR
@@ -2042,28 +2051,29 @@ function Cpu(){
 							reg[reg1] = actors[reg[reg1] & 31].sw;
 						else if(reg[reg2] == 18)
 							reg[reg1] = actors[reg[reg1] & 31].sh;
+						else reg[reg1] = 0;
+						setFlags(reg[reg1]);
 						break;
-break;
 					case 0xDE:
 						// AGBACT R,R			DE RR
 						reg1 = (op2 & 0xf0) >> 4;//n1
 						reg2 = op2 & 0xf;//n2
-						reg[reg1] = angleBetweenActors(reg[reg1], reg[reg2]);
+						reg[reg1] = setFlags(angleBetweenActors(reg[reg1], reg[reg2]));
 						break;
 					case 0xDF:
 						// GMAPXY R,R			DF RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						reg[reg1] = getTile(reg[reg1], reg[reg2]);
+						reg[reg1] = setFlags(getTile(reg[reg1], reg[reg2]));
 						break;
 				}
 				break;
 			case 0xE0:
-				// DRSPRT R,R,R	ERRR
+				// ACTPOS R,R,R	ERRR
 				reg1 = (op1 & 0xf);//номер спрайта
 				reg2 = (op2 & 0xf0) >> 4;//x
 				reg3 = op2 & 0xf;//y
-				drawActor(reg[reg1] & 0x1f, reg[reg2], reg[reg3]);
+				setActorPosition(reg[reg1] & 0x1f, reg[reg2], reg[reg3]);
 				if(actors[reg[reg1] & 31].lives < 1)
 					actors[reg[reg1] & 31].lives = 1;
 				break;
