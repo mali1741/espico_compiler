@@ -36,10 +36,11 @@ function Cpu(){
 	var regy = 0;			//Y позиция символа
 	var imageSize = 1;		//влияет на множитель размера выводимой картинки, не относится к спрайтам
 	var n = 0;
+	var shadow_n = 0;
 	var pc = 0;				//указатель на текущую команду
-	var carry = 0;			//флаг переполнения
-	var zero = 0;			//флаг нуля
-	var negative = 0;		//флаг отрицательности
+	// var carry = 0;			//флаг переполнения
+	// var zero = 0;			//флаг нуля
+	// var negative = 0;		//флаг отрицательности
 	var interrupt = 0;		//флаг прерывания
 	var redraw = 0;			//флаг, устанавливаемый после перерисовки
 	var frame_count = 0;			//флаг, устанавливаемый после перерисовки
@@ -240,6 +241,10 @@ function Cpu(){
 		frame_count++;
 	}
 	
+	function ToInt16(n){
+		return (n & 0xffff);
+	}
+
 	function ToInt32(n){
 		return n >> 0;
 	}
@@ -247,7 +252,7 @@ function Cpu(){
 	function fromInt16(n){
                 return (n > 0x7fff)?(n - 0x10000):n;
 	}
-
+/*
 	function setFlags(n){
 		carry = (n > 0xffff) ? 1 : 0;
 		zero = (n == 0) ? 1 : 0;
@@ -272,7 +277,7 @@ function Cpu(){
 		n = n & 0xff;
 		return n;
 	}
-
+*/
 
 	function getEspicoState(s){
 	  switch (s) {
@@ -703,7 +708,7 @@ function Cpu(){
 	    if (actors[i].lives > 0)
 	      drawSprite(actors[i].sprite+actors[i].frame, coord(actors[i].x)-(actors[i].sw >> 1), coord(actors[i].y)-(actors[i].sh >> 1), actors[i].sw, actors[i].sh);
 	}
-
+/*
 	function flagsToByte(){
 		return (carry & 0x1) + ((zero & 0x1) << 1)  + ((negative & 0x1) << 2);
 	}
@@ -713,7 +718,7 @@ function Cpu(){
 		zero = (b & 0x2) >> 1;
 		negative = (b & 0x4) >> 2;
 	}
-
+*/
 	function nextinterrupt(){
 	    reg[0] -= 2;
 	    writeInt(reg[0], interruptBuffer.pop());
@@ -727,7 +732,7 @@ function Cpu(){
 	
 	function setinterrupt(adr, param1, param2){
 		if(interrupt == 0){
-			shadow_reg[0] = flagsToByte();
+			shadow_n = n;
 			for(var j = 1; j <= 15; j++){
 				shadow_reg[j] = reg[j];
 			}
@@ -1155,30 +1160,30 @@ function Cpu(){
 					case 0x01: 
 						//LDI R,int		01 0R XXXX
 						reg1 = (op2 & 0xf);
-						reg[reg1] = readInt(pc);
-						setFlags(reg[reg1]);
+						n = readInt(pc);
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x02: 
 						//LDI R,(R)		02 RR
 						reg1 = ((op2 & 0xf0) >> 4);
 						reg2 = (op2 & 0xf);
-						reg[reg1] = readInt(reg[reg2]);
-						setFlags(reg[reg1]);
+						n = readInt(reg[reg2]);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0x03: 
 						//LDI R,(adr)	03 0R XXXX
 						reg1 = (op2 & 0xf);
-						reg[reg1] = readInt(readInt(pc));
-						setFlags(reg[reg1]);
+						n = readInt(readInt(pc));
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x04: 
 						//LDI R,(int+R)	04 RR XXXX
 						reg1 = ((op2 & 0xf0) >> 4);
 						reg2 = (op2 & 0xf);
-						reg[reg1] = readInt(reg[reg2] + readInt(pc));
-						setFlags(reg[reg1]);
+						n  = readInt(reg[reg2] + readInt(pc));
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x05: 
@@ -1207,15 +1212,14 @@ function Cpu(){
 						//MOV R,R		07 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						reg[reg1] = reg[reg2];
-						setFlags(reg[reg1]);
+						n = reg[reg1] = reg[reg2];
 						break;
 					case 0x08:
 						//LDIAL R,(int+R*2)	08 RR XXXX
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						reg[reg1] = readInt(reg[reg2] * 2 + readInt(pc));
-						setFlags(reg[reg1]);
+						n = readInt(reg[reg2] * 2 + readInt(pc));
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x09:
@@ -1232,24 +1236,23 @@ function Cpu(){
 			case 0x10:
 				// LDC R,char	1R XX
 				reg1 = (op1 & 0xf);
-				reg[reg1] = op2;
-				setFlagsC(reg[reg1]);
+				n = reg[reg1] = op2;
 				break;
 			case 0x20:
 				if(op1 == 0x20){
 					// LDC R,(R)	20 RR
 					reg1 = ((op2 & 0xf0) >> 4);
 					reg2 = (op2 & 0xf);
-					reg[reg1] = readMem(reg[reg2]);
-					setFlagsC(reg[reg1]);
+					n = readMem(reg[reg2]);
+					reg[reg1] = ToInt16(n);
 				}
 				else{
 					// LDC R,(R+R)	2R RR
 					reg1 = (op1 & 0xf);
 					reg2 = ((op2 & 0xf0) >> 4);
 					reg3 = (op2 & 0xf);
-					reg[reg1] = readMem(reg[reg2] + reg[reg3]);
-					setFlagsC(reg[reg1]);
+					n = readMem(reg[reg2] + reg[reg3]);
+					reg[reg1] = ToInt16(n);
 				}
 				break;
 			case 0x30: 
@@ -1258,15 +1261,15 @@ function Cpu(){
 						// LDC R,(int+R)30 RR XXXX
 						reg1 = ((op2 & 0xf0) >> 4);
 						reg2 = (op2 & 0xf);
-						reg[reg1] = readMem(reg[reg2] + readInt(pc));
-						setFlagsC(reg[reg1]);
+						n = readMem(reg[reg2] + readInt(pc));
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x31:
 						// LDC R,(adr)	31 0R XXXX
 						reg1 = (op2 & 0xf);
-						reg[reg1] = readMem(readInt(pc));
-						setFlagsC(reg[reg1]);
+						n = readMem(readInt(pc));
+						reg[reg1] = ToInt16(n);
 						pc += 2;
 						break;
 					case 0x32:
@@ -1315,8 +1318,7 @@ function Cpu(){
 					case 0x52:
 						// GTIMER R		520R
 						reg1 = op2 & 0xf;
-						reg[reg1] = timers[reg[reg1] & 0x7];
-						setFlags(reg[reg1]);
+						n = reg[reg1] = timers[reg[reg1] & 0x7];
 						break;
 					case 0x55:
 						// EPSTAT R,R   55RR
@@ -1331,8 +1333,8 @@ function Cpu(){
 				reg1 = (op1 & 0xf);
 				reg2 = ((op2 & 0xf0) >> 4);
 				reg3 = (op2 & 0xf);
-				reg[reg1] = readInt(reg[reg2] + reg[reg3]);
-				setFlags(reg[reg1]);
+				n = readInt(reg[reg2] + reg[reg3]);
+				reg[reg1] = ToInt16(n);
 				break;
 			case 0x70:
 				// STI (R+R),R	7R RR
@@ -1389,42 +1391,42 @@ function Cpu(){
 						break;
 					case 0x91:
 						// JNZ adr		91 00 XXXX
-						if(zero == 0)
+						if(n != 0)
 							pc = readInt(pc);
 						else 
 							pc += 2;
 						break;
 					case 0x92:
 						// JZ adr		92 00 XXXX
-						if(zero != 0)
+						if(n == 0)
 							pc = readInt(pc);
 						else 
 							pc += 2;
 						break;
 					case 0x93:
 						// JNP adr		93 00 XXXX
-						if(negative == 1)
+						if((n & 0xffff) > 0x7fff)
 							pc = readInt(pc);
 						else 
 							pc += 2;
 						break;
 					case 0x94:
 						// JP adr		94 00 XXXX
-						if(negative != 1)
+						if((n & 0xffff) <= 0x7fff)
 							pc = readInt(pc);
 						else 
 							pc += 2;
 						break;
 					case 0x95:
 						// JNC adr		95 00 XXXX
-						if(carry != 1)
+						if(n <= 0xffff)
 							pc = readInt(pc);
 						else 
 							pc += 2;
 						break;
 					case 0x96:
 						// JC adr		96 00 XXXX
-						if(carry == 1)
+						if(n > 0xffff)
 							pc = readInt(pc);
 						else 
 							pc += 2;
@@ -1469,7 +1471,7 @@ function Cpu(){
 								for(var j = 15; j >= 1; j--){
 									reg[j] = shadow_reg[j];
 								}
-								byteToFlags(shadow_reg[0]);
+								n = shadow_n;
 								interrupt = 0;
 								}
 							}
@@ -1486,28 +1488,28 @@ function Cpu(){
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] + reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA1:
 						// ADC R,R		A1 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						n = ToInt32( reg[reg1] + reg[reg2] + carry );
-						reg[reg1] = setFlags(n);
+						n = ToInt32( reg[reg1] + reg[reg2] + ((n > 0xffff) ? 1 : 0) );
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA2:
 						// SUB R,R		A2 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] - reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA3:
 						// SBC R,R		A3 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						n = ToInt32( reg[reg1] - reg[reg2] - carry );
-						reg[reg1] = setFlags(n);
+						n = ToInt32( reg[reg1] - reg[reg2] - ((n > 0xffff) ? 1 : 0) );
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA4:
 						// MUL R,R		A4 RR
@@ -1518,7 +1520,7 @@ function Cpu(){
 						if(reg[reg2] > 0x7fff)
 							reg[reg2] -= 0x10000;
 						n = ToInt32( reg[reg1] * reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA5:
 						// DIV R,R		A5 RR
@@ -1539,28 +1541,27 @@ function Cpu(){
 						  var m = Math.abs(reg[reg1] % reg[reg2]);
 						  reg[reg2] = (reg[reg2] < 0) ? -m : m;
 						}
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA6:
 						// AND R,R		A6 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] & reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA7:
 						// OR R,R		A7 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] | reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA8:
 						if(op2 == 0x10){
 							// INC adr		A8 10 XXXX
 							reg1 = op2 & 0xf;
 							n = ToInt32( readInt(readInt(pc)) + 1 );
-							setFlags(n);
 							writeInt(readInt(pc), n);
 							pc += 2;
 						}
@@ -1568,13 +1569,13 @@ function Cpu(){
 							// INC R,n		A8 nR
 							reg1 = op2 & 0xf;
 							n = ToInt32( reg[reg1] + (op2 >> 4) );
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						else{
 							// INC R		A8 0R				
 							reg1 = op2 & 0xf;
 							n = ToInt32( reg[reg1] + 1 );
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						break;
 					case 0xA9:
@@ -1582,7 +1583,6 @@ function Cpu(){
 							// DEC adr		A9 10 XXXX
 							reg1 = op2 & 0xf;
 							n = ToInt32( readInt(readInt(pc)) - 1 );
-							setFlags(n);
 							writeInt(readInt(pc), n);
 							pc += 2;
 						}
@@ -1590,13 +1590,13 @@ function Cpu(){
 							// DEC R,n		A9 nR
 							reg1 = op2 & 0xf;
 							n = ToInt32( reg[reg1] - (op2 >> 4) );
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						else{
 							// DEC R		A9 0R
 							reg1 = op2 & 0xf;
 							n = ToInt32( reg[reg1] - 1 );
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						break;
 					case 0xAA:
@@ -1604,21 +1604,21 @@ function Cpu(){
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] ^ reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xAB:
 						// SHL R,R		AB RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] << reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xAC:
 						// SHR R,R		AC RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] >> reg[reg2] );
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xAD:
 						reg1 = op2 & 0xf;
@@ -1626,27 +1626,27 @@ function Cpu(){
 						// RAND R,R		AD 0R
 						if(reg2 == 0x00){
 							n = randomInteger(0, reg[reg1]);
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						// SQRT R		AD 1R
 						else if(reg2 == 0x10){
 							n = Math.floor(Math.sqrt(reg[reg1]));
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						// COS R		AD 2R
 						else if(reg2 == 0x20){
 							n = Math.floor(Math.cos(reg[reg1]/360.0)*255);
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						// SIN R		AD 3R
 						else if(reg2 == 0x30){
 							n = Math.floor(Math.sin(reg[reg1]/360.0)*255);
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						// ABS R		AD 4R
 						else if(reg2 == 0x40){
 							n = Math.abs(reg[reg1]);
-							reg[reg1] = setFlags(n);
+							reg[reg1] = ToInt16(n);
 						}
 						break;
 					case 0xAE:
@@ -1654,14 +1654,14 @@ function Cpu(){
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = (reg[reg1] != 0 && reg[reg2] != 0) ? 1 : 0;
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xAF:
 						// ORL R,R		AF RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = (reg[reg1] != 0 || reg[reg2] != 0) ? 1 : 0;
-						reg[reg1] = setFlags(n);
+						reg[reg1] = ToInt16(n);
 						break;
 				}
 				break;
@@ -1669,7 +1669,6 @@ function Cpu(){
 				//CMP R,CHR		BR XX
 				reg1 = (op1 & 0x0f);
 				n = ToInt32( reg[reg1] - op2 );
-				setFlags(n);
 				break;
 			case 0xC0:
 				switch(op1){
@@ -1677,7 +1676,6 @@ function Cpu(){
 						//CMP R,INT		C0 R0 XXXX
 						reg1 = (op2 & 0xf0) >> 4;
 						n = ToInt32( reg[reg1] - readInt(pc) );
-						setFlags(n);
 						pc += 2;
 						break;
 					case 0xC1:
@@ -1685,32 +1683,31 @@ function Cpu(){
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						n = ToInt32( reg[reg1] - reg[reg2] );
-						setFlags(n);
 						break;
 					case 0xC2:
 						//LDF R,F		C2 RF
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
 						if(reg2 == 0)
-							reg[reg1] = carry;
+							reg[reg1] = (n > 0xffff) ? 1 : 0;
 						else if(reg2 == 1)
-							reg[reg1] = zero;
+							reg[reg1] = (n == 0) ? 1 : 0;
 						else if(reg2 == 2)
-							reg[reg1] = negative;
+							reg[reg1] = ((n & 0xffff) > 0x7fff) ? 1 : 0;
 						else if(reg2 == 3){ //pozitive
-							if(negative == 0 && zero == 0)
+							if(n == 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 1;
 							else
 								reg[reg1] = 0;
 						}
 						else if(reg2 == 4){ //not pozitive
-							if(negative == 0 && zero == 0)
+							if(n == 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 0;
 							else
 								reg[reg1] = 1;
 						}
 						else if(reg2 == 5)
-							reg[reg1] = 1 - zero;
+							reg[reg1] = (n == 0) ? 0 : 1;
 						else if(reg2 == 6){
 							reg[reg1] = redraw;
 							redraw = 0;
@@ -1722,14 +1719,14 @@ function Cpu(){
 						//LDRES X,R		C3 XR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						reg[reg2] = setFlags(n >> reg1);
+						reg[reg2] = ToInt16(n >> reg1);
 						break;
 				        case 0xC4:
 				          // MULRES X,R    C4 XR
 				          reg1 = (op2 & 0xf0) >> 4;
 				          reg2 = op2 & 0xf;
 				          n = ToInt32( reg[reg2] * (1 << reg1) );
-				          reg[reg2] = setFlags(n);
+				          reg[reg2] = ToInt16(n);
 				          break;
 				        case 0xC5:
 				          // DIVRES X,R    C5 XR
@@ -1743,7 +1740,7 @@ function Cpu(){
 				          } else {
 				            n = ToInt32( n / (1 << reg1) );
 				          }
-				          reg[reg2] = setFlags(n);
+				          reg[reg2] = ToInt16(n);
 				          break;
 				}
 				break;
@@ -1840,7 +1837,8 @@ function Cpu(){
 							case 0x10:
 								// GETJ R			D21R
 								reg1 = (op2 & 0xf);
-								reg[reg1] = setFlags(globalJKey);
+								n = globalJKey;
+								reg[reg1] = ToInt16(n);
 								break;
 						}
 						break;
@@ -1874,12 +1872,14 @@ function Cpu(){
 							case 0x30:
 								// GFCLR R			D43R
 								reg1 = op2 & 0xf;
-								reg[reg1] = setFlags(color);
+								n = color;
+								reg[reg1] = ToInt16(n);
 								break;
 							case 0x40:
 								// GBCLR R			D44R
 								reg1 = op2 & 0xf;
-								reg[reg1] = setFlags(bgcolor);
+								n = bgcolor;
+								reg[reg1] = ToInt16(n);
 								break;
 							case 0x50:
 								// ISIZE			D45R
@@ -1954,7 +1954,10 @@ function Cpu(){
 						// FGET R     D50R
 						reg1 = (op2 & 0xf0) >> 4; //sprite
 						reg2 = op2 & 0xf; // flag
-						if (reg1 == 0) reg[reg2] = setFlags(getSpriteFlag(reg[reg2]));
+						if (reg1 == 0) {
+							n = getSpriteFlag(reg[reg2]);
+							reg[reg2] = ToInt16(n);
+						}
 						else setSpriteFlag(reg[reg1], reg[reg2]);
 						break;
 					case 0xD6:
@@ -1983,13 +1986,16 @@ function Cpu(){
 						else if((op2 & 0xf0) == 0x20)
 							// DPART R 		D7 2R
 							drawParticles(readInt(reg2 + 8), readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
-						else if((op2 & 0xf0) == 0x50)
-							reg[reg1] = setFlags(distancepp(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2)));
-						else if((op2 & 0xf0) == 0x60)
+						else if((op2 & 0xf0) == 0x50) {
+							n = distancepp(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
+							reg[reg1] = ToInt16(n);
+						} else if((op2 & 0xf0) == 0x60)
 							animateParticles();
-						else if((op2 & 0xf0) == 0x70)
+						else if((op2 & 0xf0) == 0x70) {
 							// MPARTC R 		D7 7R
-							reg[reg1] = setFlags(makeParticleColor(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2)));
+							n = makeParticleColor(readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
+							reg[reg1] = ToInt16(n);
+						}
 						break;
 					case 0xD8:
 						// SCROLL R,R		D8RR
@@ -2003,68 +2009,73 @@ function Cpu(){
 						// GETPIX R,R		D9RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-						reg[reg1] = setFlags(display.getPixel(reg[reg1], reg[reg2]));
+						n = display.getPixel(reg[reg1], reg[reg2]);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDA:
 						// ATAN2 R,R		DA RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-	  					reg[reg1] = setFlags(Math.floor(Math.atan2(reg[reg1], reg[reg2]) * 57.4));
+	  					n = Math.floor(Math.atan2(reg[reg1], reg[reg2]) * 57.4);
+	  					reg[reg1] = ToInt16(n);
 						break;
 					case 0xDB:
 						// GACTXY R,R		DB RR
 						reg1 = (op2 & 0xf0) >> 4;//num
 						reg2 = op2 & 0xf;//speed y
-                                                reg[reg1] = setFlags(getActorInXY(reg[reg1],reg[reg2]));
+                                                n = getActorInXY(reg[reg1],reg[reg2]);
+                                                reg[reg1] = ToInt16(n);
 						break;
 					case 0xDC:
 						// ACTGET R,R		DC RR
 						reg1 = (op2 & 0xf0) >> 4;//num
 						reg2 = op2 & 0xf;//type
 						if(reg[reg2] == 0)
-							reg[reg1] = actors[reg[reg1] & 31].x;
+							n = actors[reg[reg1] & 31].x;
 						else if(reg[reg2] == 1)
-							reg[reg1] = actors[reg[reg1] & 31].y;
+							n = actors[reg[reg1] & 31].y;
 						else if(reg[reg2] == 2)
-							reg[reg1] = actors[reg[reg1] & 31].speedx;
+							n = actors[reg[reg1] & 31].speedx;
 						else if(reg[reg2] == 3)
-							reg[reg1] = actors[reg[reg1] & 31].speedy;
+							n = actors[reg[reg1] & 31].speedy;
 						else if(reg[reg2] == 4)
-							reg[reg1] = actors[reg[reg1] & 31].hw;
+							n = actors[reg[reg1] & 31].hw;
 						else if(reg[reg2] == 5)
-							reg[reg1] = actors[reg[reg1] & 31].hh;
+							n = actors[reg[reg1] & 31].hh;
 						else if(reg[reg2] == 6)
-							reg[reg1] = actors[reg[reg1] & 31].angle;
+							n = actors[reg[reg1] & 31].angle;
 						else if(reg[reg2] == 7)
-							reg[reg1] = actors[reg[reg1] & 31].lives;
+							n = actors[reg[reg1] & 31].lives;
 						else if(reg[reg2] == 8)
-							reg[reg1] = actors[reg[reg1] & 31].collision;
+							n = actors[reg[reg1] & 31].collision;
 						else if(reg[reg2] == 9)
-							reg[reg1] = actors[reg[reg1] & 31].flags;
+							n = actors[reg[reg1] & 31].flags;
 						else if(reg[reg2] == 10)
-							reg[reg1] = actors[reg[reg1] & 31].gravity;
+							n = actors[reg[reg1] & 31].gravity;
 						else if(reg[reg2] == 15)
-							reg[reg1] = actors[reg[reg1] & 31].sprite;
+							n = actors[reg[reg1] & 31].sprite;
 						else if(reg[reg2] == 16)
-							reg[reg1] = actors[reg[reg1] & 31].frame;
+							n = actors[reg[reg1] & 31].frame;
 						else if(reg[reg2] == 17)
-							reg[reg1] = actors[reg[reg1] & 31].sw;
+							n = actors[reg[reg1] & 31].sw;
 						else if(reg[reg2] == 18)
-							reg[reg1] = actors[reg[reg1] & 31].sh;
-						else reg[reg1] = 0;
-						setFlags(reg[reg1]);
+							n = actors[reg[reg1] & 31].sh;
+						else n = 0;
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDE:
 						// AGBACT R,R			DE RR
 						reg1 = (op2 & 0xf0) >> 4;//n1
 						reg2 = op2 & 0xf;//n2
-						reg[reg1] = setFlags(angleBetweenActors(reg[reg1], reg[reg2]));
+						n = angleBetweenActors(reg[reg1], reg[reg2]);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDF:
 						// GMAPXY R,R			DF RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						reg[reg1] = setFlags(getTile(reg[reg1], reg[reg2]));
+						n = getTile(reg[reg1], reg[reg2]);
+						reg[reg1] = ToInt16(n);
 						break;
 				}
 				break;
@@ -2136,7 +2147,7 @@ function Cpu(){
 		s += 'op:' + toHex4((mem[pc] << 8) + mem[pc + 1]);
 		if (interrupt != 0) s+= '\t' + 'int:' + toHex4(interrupt);
 		s += '\n';
-		s += 'C' + carry + 'Z' + zero + 'N' + negative + '\n';
+		s += 'C' + ((n > 0xffff) ? 1 : 0) + 'Z' + ((n == 0) ? 1 : 0) + 'N' + (((n & 0xffff) > 0x7fff) ? 1 : 0) + '\n';
 		for(var i = 0; i < 16; i++)
 			s += 'R' + i + ':' + toHex4(reg[i]) + ' (' + reg[i] + ')\n';
 		for(var i = 0; i < debugVar.length; i++){
