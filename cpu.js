@@ -242,7 +242,7 @@ function Cpu(){
 	}
 	
 	function ToInt16(n){
-		return (n & 0xffff);
+		return ((n >> 0) & 0xffff);
 	}
 
 	function ToInt32(n){
@@ -1379,8 +1379,6 @@ function Cpu(){
 						writeInt(reg[0], readInt(pc));
 						pc += 2;
 						break;
-					break;
-			
 				}
 				break;
 			case 0x90:
@@ -1515,31 +1513,27 @@ function Cpu(){
 						// MUL R,R		A4 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						if(reg[reg1] > 0x7fff)
-							reg[reg1] -= 0x10000;
-						if(reg[reg2] > 0x7fff)
-							reg[reg2] -= 0x10000;
-						n = ToInt32( reg[reg1] * reg[reg2] );
+						var v1 = fromInt16(reg[reg1]);
+						var v2 = fromInt16(reg[reg2]);
+						n = ToInt32( v1 * v2 );
 						reg[reg1] = ToInt16(n);
 						break;
 					case 0xA5:
 						// DIV R,R		A5 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						if(reg[reg1] > 0x7fff)
-							reg[reg1] -= 0x10000;
-						if(reg[reg2] > 0x7fff)
-							reg[reg2] -= 0x10000;
-						if(reg[reg1] == 0){
+						var v1 = fromInt16(reg[reg1]);
+						var v2 = fromInt16(reg[reg2]);
+						if(v1 == 0){
 						  n = 0;
 						  reg[reg2] = 0;
-						} else if(reg[reg2] == 0){
-						  n = (reg[reg1] > 0) ? 0x7fff : 0x8000;
+						} else if(v2 == 0){
+						  n = (v1 > 0) ? 0x7fff : 0x8000;
 						  reg[reg2] = 0; 
 						} else{
-						  n = ToInt32( reg[reg1] / reg[reg2] );
-						  var m = Math.abs(reg[reg1] % reg[reg2]);
-						  reg[reg2] = (reg[reg2] < 0) ? -m : m;
+						  n = ToInt32( v1 / v2 );
+						  var m = Math.abs(v1 % v2);
+						  reg[reg2] = (v2 < 0) ? -m : m;
 						}
 						reg[reg1] = ToInt16(n);
 						break;
@@ -1625,27 +1619,27 @@ function Cpu(){
 						reg2 = op2 & 0xf0;
 						// RAND R,R		AD 0R
 						if(reg2 == 0x00){
-							n = randomInteger(0, reg[reg1]);
+							n = randomInteger(0, fromInt16(reg[reg1]));
 							reg[reg1] = ToInt16(n);
 						}
 						// SQRT R		AD 1R
 						else if(reg2 == 0x10){
-							n = Math.floor(Math.sqrt(reg[reg1]));
+							n = Math.floor(Math.sqrt(fromInt16(reg[reg1])));
 							reg[reg1] = ToInt16(n);
 						}
 						// COS R		AD 2R
 						else if(reg2 == 0x20){
-							n = Math.floor(Math.cos(reg[reg1]/360.0)*255);
+							n = Math.floor(Math.cos(fromInt16(reg[reg1])/360.0)*255);
 							reg[reg1] = ToInt16(n);
 						}
 						// SIN R		AD 3R
 						else if(reg2 == 0x30){
-							n = Math.floor(Math.sin(reg[reg1]/360.0)*255);
+							n = Math.floor(Math.sin(fromInt16(reg[reg1])/360.0)*255);
 							reg[reg1] = ToInt16(n);
 						}
 						// ABS R		AD 4R
 						else if(reg2 == 0x40){
-							n = Math.abs(reg[reg1]);
+							n = Math.abs(fromInt16(reg[reg1]));
 							reg[reg1] = ToInt16(n);
 						}
 						break;
@@ -2016,8 +2010,8 @@ function Cpu(){
 						// ATAN2 R,R		DA RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-	  					n = Math.floor(Math.atan2(reg[reg1], reg[reg2]) * 57.4);
-	  					reg[reg1] = ToInt16(n);
+						n = Math.floor(Math.atan2(fromInt16(reg[reg1]), fromInt16(reg[reg2])) * 57.4);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDB:
 						// GACTXY R,R		DB RR

@@ -2090,10 +2090,12 @@ function compile(t) {
 						}
 					}
 				} 
-				var opregs = asm[pi].match(/R\d+/);
-				if (opregs && asm[i].match(opregs[0]+',0')) {
+				if (!asm[pi].startsWith(' MOV') && !asm[pi].startsWith(' POP') && !asm[pi].startsWith(' LDRES')) {
+				  var opregs = asm[pi].match(/R\d+/);
+				  if (opregs && asm[i].match(opregs[0]+',0')) {
  				  	// then CMP with 0 is abundant
 					asm[i] = ';O1 ' + asm[i];
+				  }
 				}
                         }
                 }
