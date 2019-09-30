@@ -378,9 +378,14 @@ function asm(s) {
 				out.push((getRegister(a[i + 1]) << 4) + getRegister(a[i + 3]));
 				return;
 			case 'PUSH':
-				out.push(0x82); //PUSH R			82 0R
-				if (getRegister(a[i + 1]) > 0)
-					out.push(getRegister(a[i + 1]));
+				if (getRegister(a[i + 1]) > -1) {
+					out.push(0x82); //PUSH R			82 0R
+					out.push((getRegister(a[i + 1])));
+				} else {
+					out.push(0x84);
+					out.push(0); //PUSH INT		84 00 XXXX
+					pushInt(a[i + 1]);
+				}
 				return;
 			case 'POP':
 				out.push(0x80); //POP R			80 0R
@@ -586,6 +591,10 @@ function asm(s) {
 			case 'SETY':
 				out.push(0xD1); // SETY R			D14R
 				out.push(0x40 + getRegister(a[i + 1]));
+				return;
+			case 'CLIP':
+				out.push(0xD1); // CLIP R			D14R
+				out.push(0x50 + getRegister(a[i + 1]));
 				return;
 			case 'GETK':
 				out.push(0xD2); // GETK R			D20R

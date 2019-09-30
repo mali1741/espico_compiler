@@ -6,7 +6,7 @@ var debugArea =  document.getElementById("debug");
 var debugVarArea =  document.getElementById("debugVariable");
 var debugSprArea =  document.getElementById("debugActors");
 var memoryPage = 0;			//указывает на одну из 255 страниц памяти по 255 байт для отображения
-var cpuSpeed = 1600;			//количество операций, выполняемых процессором за 16 миллисекунд
+var cpuSpeed = 8000;			//количество операций, выполняемых процессором за 16 миллисекунд
 var cpuLostCycle = 0;		//сколько циклов должно быть потеряно из-за операций рисования
 var timerId;				//таймер для вызова выполнения процессора
 var asmSource;				//код, полученный при компиляции
@@ -25,6 +25,8 @@ var isDebug = false;
 var tickCount = 0;
 var isRedraw = true;
 var language = 'eng';
+var timerstart = new Date().getTime(),
+timertime = 0;
 
 document.addEventListener("keydown", keyDownHandler, false);
 document.addEventListener("keyup", keyUpHandler, false);
@@ -488,8 +490,12 @@ function run(){
 		//выводим отладочную информацию
 		document.getElementById('debug').value = cpu.debug();
 	}
-	clearTimeout(timerId);
-	timerId = setTimeout(function() { run() }, 16);
+        timertime += 16;
+        var diff = (new Date().getTime() - timerstart) - timertime;
+        clearTimeout(timerId);
+        timerId = setTimeout(function () {
+                        run()
+                }, 16 - diff);
 }
 //функция вывода на экран
 function Display() {
@@ -584,7 +590,7 @@ function Display() {
 					drawPixel(bgcolor, x+i, y+j);
 			}
 		}
-    }
+	}
 	
 	function drawTestRect(x,y,w,h,c){
 		if(c == 0)
@@ -598,18 +604,17 @@ function Display() {
 	}
 	
 	function drawPixel(color, x, y) {
-		cpuLostCycle += 1;
-		if(x >= 0 && x < 128 && y >= 0 && y < 128)
+		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+			cpuLostCycle += 1;
 			canvasArray[x * 128 + y] = color;
-    }
+		}
+	}
 	
 	
 	function plot(color, x, y) {
 		var c = drwpalette[color & 0xf];
-		if(x >= 0 && x < 128 && y >= 0 && y < 128){
-			drawPixel(c, x, y);
-		}
-    }
+		drawPixel(c, x, y);
+	}
 	
 	function largeplot(color, x, y, s) {
 		var c = drwpalette[color & 0xf];
@@ -618,7 +623,7 @@ function Display() {
 			for(y1 = 0; y1 < s; y1++){
 				drawPixel(c, x + x1, y + y1);
 			}
-    }
+	}
 	
 	function getPixel(x, y){
 		return canvasArray[x * 128 + y];
@@ -733,7 +738,7 @@ function redraw() {
 		  cpu.setRedraw();
                 }
 		isRedraw = true;
-    }, 48);
+    }, 40);
 }
 
 function savebin(){

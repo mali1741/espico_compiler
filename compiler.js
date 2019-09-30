@@ -1134,7 +1134,7 @@ function compile(t) {
 	}
 	//проверка, является ли токен t числом
 	function isNumber(t) {
-		return !isNaN(parseFloat(t)) && isFinite(t);
+		return !isNaN(Number(t)); //  && isFinite(t);
 	}
 	// number parser, with fraction to fixed point conversion
 	function parseNumber(t) {
@@ -1142,7 +1142,7 @@ function compile(t) {
 		// contains . -> fraction
 			return Math.trunc(parseFloat(t)*FP_SCALE);
 		}
-		return parseInt(t);
+		return Number(t); // parseInt(t);
 	}
 	//обрабатываем переменную
 	function varToken() {
@@ -2098,6 +2098,19 @@ function compile(t) {
 				  }
 				}
                         }
+			if (asm[i].startsWith(' PUSH')) {
+				if(asm[pi].startsWith(' LDI') || asm[pi].startsWith(' LDC')) {
+					// match number and change PUSH to CMP int
+					var opregs = asm[pi].match(/R\d+/);
+					var val = asm[pi].match(/,\-?\d+/);
+					if (val && opregs && asm[i].match(' ' + opregs[0])) {
+					  asm[pi] = ';O1 ' + asm[pi];
+					  pi--;
+					  val[0] = val[0].slice(1);
+					  asm[i] = asm[i].replace(opregs[0], val[0]);
+					}
+				}
+			}
                 }
 
 		// Compress comp & jump
@@ -2121,64 +2134,65 @@ function compile(t) {
 	registerFunction('intcoords', 'void', [], 1, 'LDC R15,0 \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,7 \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('coordshift', 'void', ['int', 's'], 1, 'ESPICO 1,R%1', 'inline', 0);
-	registerFunction('flip', 'void', [], 1, 'LDC R15,0 \n ESPICO 0,R15', 'inline', 0);
+	registerFunction('flip', 'void', [], 1, '_flip:\n LDC R15,0 \n ESPICO 0,R15\n flip_delay: \n LDF R15,6\n CMP R15,0\n JZ flip_delay\n RET', false, 0);
 	registerFunction('rnd', 'int', ['int', 'i'], 1, 'RAND R%1', 'inline', 0);
 	registerFunction('sqrt', 'int', ['int', 'n'], 1, 'SQRT R%1', 'inline', 0);
 	registerFunction('cos', 'int', ['int', 'n'], 1, 'COS R%1', 'inline', 0);
 	registerFunction('sin', 'int', ['int', 'n'], 1, 'SIN R%1', 'inline', 0);
 	registerFunction('abs', 'int', ['int', 'n'], 1, 'ABS R%1', 'inline', 0);
 	registerFunction('atan2', 'int', ['int', 'y', 'int', 'x'], 1, 'ATAN2 R%2,R%1', 'inline', 0);
-	registerFunction('putc', 'char', ['char', 'c'], 1, 'PUTC R%1', 'inline', 0);
-	registerFunction('puts', 'int', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
-	registerFunction('putn', 'int', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
-	registerFunction('gettimer', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
-	registerFunction('settimer', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
+	registerFunction('printc', 'char', ['char', 'c'], 1, 'PUTC R%1', 'inline', 0);
+	registerFunction('print', 'int', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
+	registerFunction('printn', 'int', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
+	registerFunction('tmrget', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
+	registerFunction('tmrset', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
 	registerFunction('cls', 'int', [], 1, 'CLS', 'inline', 0);
-	registerFunction('rstpal', 'void', [], 1, 'RPALET', 'inline', 0);
+	registerFunction('palrst', 'void', [], 1, 'RPALET', 'inline', 0);
 	registerFunction('palt', 'void', ['int', 'm'], 1, 'PALT R%1', 'inline', 0);
 	registerFunction('fcol', 'void', ['int', 'c'], 1, 'SFCLR R%1', 'inline', 0);
 	registerFunction('bcol', 'void', ['int', 'c'], 1, 'SBCLR R%1', 'inline', 0);
-	registerFunction('setpal', 'void', ['int', 'n', 'int', 'c'], 1, 'SPALET R%2,R%1', 'inline', 0);
-	registerFunction('getchar', 'int', [], 1, 'GETK R%0', 'inline', 0);
-	registerFunction('getkey', 'int', [], 1, 'GETJ R%0', 'inline', 0);
-	registerFunction('putpix', 'void', ['int', 'x', 'int', 'y'], 1, 'PPIX R%2,R%1', 'inline', 0);
-	registerFunction('getpix', 'int', ['int', 'x', 'int', 'y'], 1, 'GETPIX R%2,R%1', 'inline', 0);
-	registerFunction('testactorcoll', 'void', [], 1, 'TACTC', 'inline', 0);
-	registerFunction('moveactor', 'void', ['int', 'n'], 1, 'MVACT R%1', 'inline', 0);
-	registerFunction('drawactor', 'void', ['int', 'n'], 1, 'DRWACT R%1', 'inline', 0);
-	registerFunction('actorpos', 'void', ['int', 'n', 'int', 'x', 'int', 'y'], 1, 'ACTPOS R%3,R%2,R%1', 'inline', 0);
-	registerFunction('actorinxy', 'int', ['int', 'x', 'int', 'y'], 1, 'ACTXY R%2,R%1', 'inline', 0);
+	registerFunction('pal', 'void', ['int', 'n', 'int', 'c'], 1, 'SPALET R%2,R%1', 'inline', 0);
+	registerFunction('cget', 'int', [], 1, 'GETK R%0', 'inline', 0);
+	registerFunction('btn', 'int', [], 1, 'GETJ R%0', 'inline', 0);
+	registerFunction('pset', 'void', ['int', 'x', 'int', 'y'], 1, 'PPIX R%2,R%1', 'inline', 0);
+	registerFunction('pget', 'int', ['int', 'x', 'int', 'y'], 1, 'GETPIX R%2,R%1', 'inline', 0);
+	registerFunction('atstcoll', 'void', [], 1, 'TACTC', 'inline', 0);
+	registerFunction('amove', 'void', ['int', 'n'], 1, 'MVACT R%1', 'inline', 0);
+	registerFunction('adraw', 'void', ['int', 'n'], 1, 'DRWACT R%1', 'inline', 0);
+	registerFunction('apos', 'void', ['int', 'n', 'int', 'x', 'int', 'y'], 1, 'ACTPOS R%3,R%2,R%1', 'inline', 0);
+	registerFunction('axy', 'int', ['int', 'x', 'int', 'y'], 1, 'ACTXY R%2,R%1', 'inline', 0);
 	registerFunction('fset', 'void', ['int', 's', 'int', 'f'], 1, 'FSET R%2,R%1', 'inline', 0);
 	registerFunction('fget', 'void', ['int', 's'], 1, 'FGET R%1', 'inline', 0);
-	registerFunction('getmapxy', 'int', ['int', 'x', 'int', 'y'], 1, 'GMAPXY R%2,R%1', 'inline', 0);
-	registerFunction('setmapxy', 'void', ['int', 'x', 'int', 'y', 'int', 's'], 1, '_setmapxy: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n SMAPXY R1 \n RET', false, 0);
+	registerFunction('mget', 'int', ['int', 'x', 'int', 'y'], 1, 'GMAPXY R%2,R%1', 'inline', 0);
+	registerFunction('mset', 'void', ['int', 'x', 'int', 'y', 'int', 'v'], 1, 'SMAPXY R0', 'builtin', 0);
 
-	registerFunction('angbtwactors', 'int', ['int', 'n1', 'int', 'n2'], 1, 'AGBACT R%2,R%1', 'inline', 0);
-	registerFunction('actorgetvalue', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
-	registerFunction('actorsetvalue', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
-	registerFunction('setimgsize', 'void', ['int', 's'], 1, 'ISIZE R%1', 'inline', 0);
+	registerFunction('a2a', 'int', ['int', 'n1', 'int', 'n2'], 1, 'AGBACT R%2,R%1', 'inline', 0);
+	registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
+	registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
+	registerFunction('zoom', 'void', ['int', 's'], 1, 'ISIZE R%1', 'inline', 0);
 	registerFunction('scroll', 'void', ['char', 'direction'], 1, 'SCROLL R%1,R%1', 'inline', 0);
 	registerFunction('gotoxy', 'void', ['int', 'x', 'int', 'y'], 1, 'SETX R%2 \n SETY R%1', 'inline', 0);
+	registerFunction('camera', 'void', ['int', 'x', 'int', 'y'], 1, 'ESPICO 2,R%2 \n ESPICO 3,R%1', 'inline', 0);
+	registerFunction('clip', 'void', ['int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'CLIP R0', 'builtin', 0);
 	registerFunction('line', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'DLINE R0', 'builtin', 0);
-	registerFunction('drawcirc', 'void', ['int', 'x', 'int', 'y', 'int', 'r'], 1, 'DCIRC R0', 'builtin', 0);
-	registerFunction('fillcirc', 'void', ['int', 'x', 'int', 'y', 'int', 'r'], 1, 'FCIRC R0', 'builtin', 0);
-	registerFunction('drawrect', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'DRECT R0', 'builtin', 0);
-	registerFunction('fillrect', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'FRECT R0', 'builtin', 0);
-	registerFunction('actorspeed', 'void', ['int', 'n', 'int', 'speed', 'int', 'dir'], 1, 'ACTDS R0', 'builtin', 0);
-	registerFunction('delayredraw', 'void', [], 1, '_delayredraw: \n LDF R1,6\n CMP R1,0\n JZ _delayredraw \n RET', false, 0);
-	registerFunction('distance', 'int', ['int', 'x1', 'int', 'y1', 'int', 'x2', 'int' , 'y2'], 1, '_distance: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n DISTPP R1 \n RET', false, 0);
-	registerFunction('testactormap', 'void', ['int', 'mx', 'int', 'my', 'int', 'mw', 'int', 'mh', 'int', 'f'], 1, 'TACTM R0', 'builtin', 0);
-	registerFunction('putimage', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWIM R0', 'builtin', 0);
-	registerFunction('putimage1bit', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWBIT R0', 'builtin', 0);
-	registerFunction('putsprite', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWSPR R0', 'builtin', 0);
+	registerFunction('circ', 'void', ['int', 'x', 'int', 'y', 'int', 'r'], 1, 'DCIRC R0', 'builtin', 0);
+	registerFunction('circfill', 'void', ['int', 'x', 'int', 'y', 'int', 'r'], 1, 'FCIRC R0', 'builtin', 0);
+	registerFunction('rect', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'DRECT R0', 'builtin', 0);
+	registerFunction('rectfill', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'FRECT R0', 'builtin', 0);
+	registerFunction('aspd', 'void', ['int', 'n', 'int', 'speed', 'int', 'dir'], 1, 'ACTDS R0', 'builtin', 0);
+	registerFunction('dist', 'int', ['int', 'x1', 'int', 'y1', 'int', 'x2', 'int' , 'y2'], 1, '_dist: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n DISTPP R1 \n RET', false, 0);
+	registerFunction('atstmap', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'TACTM R0', 'builtin', 0);
+	registerFunction('img', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWIM R0', 'builtin', 0);
+	registerFunction('img1bit', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWBIT R0', 'builtin', 0);
+	registerFunction('spr', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWSPR R0', 'builtin', 0);
 	dataAsm = [];
-	dataAsm.push('_makeparticlecolor: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n MPARTC R1 \n RET');
-	registerFunction('makeparticlecolor', 'int', ['int', 'color', 'int', 'colstep', 'int', 'prefsteps', 'int', 'ptype'], 1, dataAsm, false, 0);
-	registerFunction('setparticletime', 'void', ['int', 'time', 'int', 'diff'], 1, 'SPART R0', 'builtin', 0);
-	registerFunction('setemitter', 'void', ['int', 'gravity', 'int', 'dir', 'int', 'dir1', 'int', 'speed'], 1, 'SEMIT R0', 'builtin', 0);
-	registerFunction('drawparticles', 'void', ['int', 'x', 'int', 'y', 'int', 'pcolor', 'int', 'radpx', 'int', 'count'], 1, 'DPART R0', 'builtin', 0);
-	registerFunction('animateparticles', 'void', [], 1, 'APART', 'inline', 0);
-	registerFunction('drawmap', 'void', ['int', 'celx', 'int', 'cely', 'int', 'x', 'int', 'y', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'DRWMAP R0', 'builtin', 0);
+	dataAsm.push('_partcolor: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n MPARTC R1 \n RET');
+	registerFunction('partcolor', 'int', ['int', 'col1', 'int', 'col2', 'int', 'prefsteps', 'int', 'ptype'], 1, dataAsm, false, 0);
+	registerFunction('parttime', 'void', ['int', 'time', 'int', 'diff'], 1, 'SPART R0', 'builtin', 0);
+	registerFunction('partdir', 'void', ['int', 'gravity', 'int', 'dir', 'int', 'dir1', 'int', 'speed'], 1, 'SEMIT R0', 'builtin', 0);
+	registerFunction('partdraw', 'void', ['int', 'x', 'int', 'y', 'int', 'pcolor', 'int', 'radpx', 'int', 'count'], 1, 'DPART R0', 'builtin', 0);
+	registerFunction('partmove', 'void', [], 1, 'APART', 'inline', 0);
+	registerFunction('map', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'DRWMAP R0', 'builtin', 0);
 	dataAsm = [];
 	dataAsm.push('_printf: \n MOV R2,R0 \n ADD R2,R1 \n LDI R2,(R2) \n LDC R3,(R2) \nnext_printf_c:')
 	dataAsm.push(' CMP R3,37 ;% \n JZ printf_get\n PUTC R3\n INC R2 \n LDC R3,(R2) \n JNZ next_printf_c');
@@ -2239,7 +2253,9 @@ function compile(t) {
 		gameloopAsm.push('LDC R15,1 \n ESPICO 0,R15');
 		gameloopAsm.push('CALL _draw');
 		gameloopAsm.push('LDC R15,0 \n ESPICO 0,R15');
-		gameloopAsm.push('CALL _delayredraw');
+		gameloopAsm.push('delayredraw:');
+		gameloopAsm.push('LDF R15,6\n CMP R15,0');
+		gameloopAsm.push('JZ delayredraw');
 		gameloopAsm.push('JMP start_gameloop');
 		gameloopAsm.push('end_gameloop: \n RET');
 		registerFunction('main', 'void', [], 1, gameloopAsm, false, 0);

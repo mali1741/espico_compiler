@@ -31,7 +31,7 @@ function Cpu(){
 	var mem = new Uint8Array(0x10000);			//память, максимум 65 534 байта
 	var reg = [];			//16 регистров, нулевой используется как указатель стека
 	var shadow_reg = [];			//16 регистров, нулевой используется как указатель стека
-        var espico = {drawing: 0, palt: 1, coordshift: 0};
+        var espico = {drawing: 0, palt: 1, coordshift: 0, clipx0: 0, clipy0: 0, clipx1: 128, clipy1: 128, camx: 0, camy: 0};
 	var regx = 0;			//неявный регистр, указывает на Х позицию символа в текстовом режиме
 	var regy = 0;			//Y позиция символа
 	var imageSize = 1;		//влияет на множитель размера выводимой картинки, не относится к спрайтам
@@ -90,6 +90,12 @@ function Cpu(){
 		espico.drawing = 0;
 		espico.palt = 1;
 		espico.coordshift = 0;
+		espico.clipx0 = 0;
+		espico.clipy0 = 0;
+		espico.clipx1 = 128;
+		espico.clipy1 = 128;
+		espico.camx = 0;
+		espico.camy = 0;
 		bgcolor = 0;
 		color = 7;
 		interrupt = 0;
@@ -252,6 +258,18 @@ function Cpu(){
 	function fromInt16(n){
                 return (n > 0x7fff)?(n - 0x10000):n;
 	}
+
+	function setClip(x, y, w, h) {
+		x = fromInt16(x);
+		y = fromInt16(y);
+		w = fromInt16(w);
+		h = fromInt16(h);
+		espico.clipx0 = (x < 0) ? 0 : x & 127;
+		espico.clipx1 = (x + w > 128) ? 128 : x+w;
+		espico.clipy0 = (y < 0) ? 0 : y & 127;
+		espico.clipy1 = (y + h > 128) ? 128 : y+h;
+	}
+
 /*
 	function setFlags(n){
 		carry = (n > 0xffff) ? 1 : 0;
@@ -298,6 +316,12 @@ function Cpu(){
 	   case 1:
 	     espico.coordshift = v & 0xf;
 	     break;
+	   case 2:
+	     espico.camx = fromInt16(v);
+	     break;
+	   case 3:
+	     espico.camy = fromInt16(v);
+	     break;
 	  }
 	}
 
@@ -316,7 +340,10 @@ function Cpu(){
 	}
 
 	function setPix(x, y, col){
-		display.plot(col, x, y);
+		x -= espico.camx;
+		y -= espico.camy;
+		if (x >= espico.clipx0 && x < espico.clipx1 && y >= espico.clipy0 && y < espico.clipy1)
+		  display.plot(col, x, y);
 	}
 	
 	function drawRect(x0, y0, x1, y1){
@@ -421,9 +448,9 @@ function Cpu(){
 
 		for(var jx = x; jx < x + w; jx++)
 			for(var jy = y; jy < y + h; jy++)
-				display.plot(c, jx, jy);
+				setPix(jx, jy, c);
 	}
-	
+/*	
 	function scrollScreen(step, direction){
 		var bufPixel, n;
 		if(direction == 2){
@@ -459,7 +486,7 @@ function Cpu(){
 			}
 		}
 	}
-		
+*/		
 	function setActorPosition(n, x1, y1){
 		actors[n].x = fromInt16(x1);
 		actors[n].y = fromInt16(y1);
@@ -823,22 +850,22 @@ function Cpu(){
 		}
 	}
 
-	function testTile(x,y,tw,th,flags){
-	  return ((x >= 0 && x < tw && y >= 0 && y < th) && (sprite_flags(getTile(x,y)) & flags));
+	function testTile(tx,ty,x,y,tw,th,flags){
+	  return ((x >= 0 && x < tw && y >= 0 && y < th) && (sprite_flags(getTile(tx+x,ty+y)) & flags));
 	}
 	
-	function testMapX(xs,xe,xdir,y,flags,n,event){
+	function testMapX(tx,ty,xs,xe,xdir,y,tw,th,flags,n,event){
  	    for(var x = xs; (xdir == 1) ? x<=xe : x>=xe; x+=xdir){
-	        if(testTile(x,y,tw,th,flags)){
-		  setinterrupt(actors[n].oncollision, event | n, ((y << 8) + x) | ACTOR_MAP_COLL);
+	        if(testTile(tx,ty,x,y,tw,th,flags)){
+		  setinterrupt(actors[n].oncollision, event | n, (((ty+y) << 8) + (tx+x)) | ACTOR_MAP_COLL);
 	        }
             }
 	}
 	
-	function testMapY(ys,ye,ydir,x,flags,n,event){
+	function testMapY(tx,ty,ys,ye,ydir,x,tw,th,flags,n,event){
  	    for(var y = ys; (ydir == 1) ? y<=ye : y>=ye; y+=ydir){
-	        if(testTile(x,y,tw,th,flags)){
-		  setinterrupt(actors[n].oncollision, event | n, ((y << 8) + x) | ACTOR_MAP_COLL);
+	        if(testTile(tx,ty,x,y,tw,th,flags)){
+		  setinterrupt(actors[n].oncollision, event | n, (((ty+y) << 8) + (tx+x)) | ACTOR_MAP_COLL);
 	        }
             }
 	}
@@ -846,7 +873,9 @@ function Cpu(){
 	// 000I TBLR 000NNNNN  M00YYYYY0XXXXXXX
 	// 000I TBLR 000NNNNN  00000000000AAAAA
 
-	function testActorMap(tx, ty, tw, th, flags){
+	function testActorMap(celx, cely, sx, sy, celw, celh, flags){
+	  sx = fromInt16(sx);
+	  sy = fromInt16(sy);
 	  var x0, y0, xm, ym, x1, y1;
 	  var event = 0;
 	  for(var n = 0; n < 32; n++){
@@ -859,12 +888,12 @@ function Cpu(){
 		  e_y0 = ACTOR_T_EVENT;
 		  e_x1 = ACTOR_R_EVENT;
 		  e_y1 = ACTOR_B_EVENT;
-	          x0 = Math.floor(((coord(actors[n].x + actors[n].speedx - actors[n].hw) - tx) / SPRITE_WIDTH));
-	          xm = Math.floor(((coord(actors[n].x + actors[n].speedx) - tx) / SPRITE_WIDTH));
-	          x1 = Math.floor(((coord(actors[n].x + actors[n].speedx + actors[n].hw) - tx) / SPRITE_WIDTH));
-	          y0 = Math.floor(((coord(actors[n].y + actors[n].speedy - actors[n].hh) - ty) / SPRITE_HEIGHT));
-	          ym = Math.floor(((coord(actors[n].y + actors[n].speedy) - ty) / SPRITE_HEIGHT));
-	          y1 = Math.floor(((coord(actors[n].y + actors[n].speedy + actors[n].hh) - ty) / SPRITE_HEIGHT));
+	          x0 = Math.floor(((coord(actors[n].x + actors[n].speedx - actors[n].hw) - sx) / SPRITE_WIDTH));
+	          xm = Math.floor(((coord(actors[n].x + actors[n].speedx) - sx) / SPRITE_WIDTH));
+	          x1 = Math.floor(((coord(actors[n].x + actors[n].speedx + actors[n].hw) - sx) / SPRITE_WIDTH));
+	          y0 = Math.floor(((coord(actors[n].y + actors[n].speedy - actors[n].hh) - sy) / SPRITE_HEIGHT));
+	          ym = Math.floor(((coord(actors[n].y + actors[n].speedy) - sy) / SPRITE_HEIGHT));
+	          y1 = Math.floor(((coord(actors[n].y + actors[n].speedy + actors[n].hh) - sy) / SPRITE_HEIGHT));
 		  if ((actors[n].speedx > 0 && x0 != xm) || (x1 == xm)){
 		    var tmpx = x0;
 		    x0 = x1; x1 = tmpx;
@@ -885,21 +914,21 @@ function Cpu(){
 		  if (y1 == ym) e_y1 = ACTOR_IN_EVENT;
 
 		  for(var y = y0+ydir; (ydir == 1) ? y<y1 : y>y1; y+=ydir){
-		    testMapX(x0+xdir,x1-xdir,xdir,y,flags,n,ACTOR_IN_EVENT);
+		    testMapX(celx,cely,x0+xdir,x1-xdir,xdir,y,celw,celh,flags,n,ACTOR_IN_EVENT);
 		  }
-		  testMapX(x0+xdir,x1-xdir,xdir,y0,flags,n,e_y0);
-		  if (y0 != y1) testMapX(x0+xdir,x1-xdir,xdir,y1,flags,n,e_y1);
-		  testMapY(y0+ydir,y1-ydir,ydir,x0,flags,n,e_x0);
-		  if (x0 != x1) testMapY(y0+ydir,y1-ydir,ydir,x1,flags,n,e_x1);
-		  if (testTile(x0,y0,tw,th,flags)) 
-                    setinterrupt(actors[n].oncollision, e_x0 | e_y0 | n, ((y0 << 8) + x0) | ACTOR_MAP_COLL);
-		  if ((y0 != y1) && (testTile(x0,y1,tw,th,flags))) 
-                    setinterrupt(actors[n].oncollision, e_x0 | e_y1 | n, ((y1 << 8) + x0) | ACTOR_MAP_COLL);
+		  testMapX(celx,cely,x0+xdir,x1-xdir,xdir,y0,celw,celh,flags,n,e_y0);
+		  if (y0 != y1) testMapX(celx,cely,x0+xdir,x1-xdir,xdir,y1,celw,celh,flags,n,e_y1);
+		  testMapY(celx,cely,y0+ydir,y1-ydir,ydir,x0,celw,celh,flags,n,e_x0);
+		  if (x0 != x1) testMapY(celx,cely,y0+ydir,y1-ydir,ydir,x1,celw,celh,flags,n,e_x1);
+		  if (testTile(celx,cely,x0,y0,celw,celh,flags)) 
+                    setinterrupt(actors[n].oncollision, e_x0 | e_y0 | n, (((cely+y0) << 8) + (celx+x0)) | ACTOR_MAP_COLL);
+		  if ((y0 != y1) && (testTile(celx,cely,x0,y1,celw,celh,flags))) 
+                    setinterrupt(actors[n].oncollision, e_x0 | e_y1 | n, (((cely+y1) << 8) + (celx+x0)) | ACTOR_MAP_COLL);
 		  if (x0 != x1){ 
-		    if (testTile(x1,y0,tw,th,flags)) 
-                      setinterrupt(actors[n].oncollision, e_x1 | e_y0 | n, ((y0 << 8) + x1) | ACTOR_MAP_COLL);
-		    if ((y0 != y1) && (testTile(x1,y1,tw,th,flags)))
-                      setinterrupt(actors[n].oncollision, e_x1 | e_y1 | n, ((y1 << 8) + x1) | ACTOR_MAP_COLL);
+		    if (testTile(celx,cely,x1,y0,celw,celh,flags)) 
+                      setinterrupt(actors[n].oncollision, e_x1 | e_y0 | n, (((cely+y0) << 8) + (celx+x1)) | ACTOR_MAP_COLL);
+		    if ((y0 != y1) && (testTile(celx,cely,x1,y1,celw,celh,flags)))
+                      setinterrupt(actors[n].oncollision, e_x1 | e_y1 | n, (((cely+y1) << 8) + (celx+x1)) | ACTOR_MAP_COLL);
 		  }
 	    }
 	  }
@@ -928,11 +957,11 @@ function Cpu(){
 			for(var x = 0; x < w; x++){
 				color = (readMem(adr) & 0xf0) >> 4;
 				if(IS_TRANSPARENT(color) == 0)
-					display.plot(color, x1 + x, y1 + y);
+					setPix(x1 + x, y1 + y, color);
 				x++;
 				color = (readMem(adr) & 0xf);
 				if(IS_TRANSPARENT(color) == 0)
-					display.plot(color, x1 + x, y1 + y);
+					setPix(x1 + x, y1 + y, color);
 				adr++;
 			}
 			adr += add_next_row;
@@ -951,9 +980,9 @@ function Cpu(){
 					adr++;
 				}
 				if(bit & 0x80)
-					display.plot(color, x1 + x, y1 + y);
+					setPix(x1 + x, y1 + y, color);
 				else
-					display.plot(bgcolor, x1 + x, y1 + y);
+					setPix(x1 + x, y1 + y, bgcolor);
 				bit = bit << 1;
 				i++;
 			}
@@ -973,13 +1002,13 @@ function Cpu(){
 				if(IS_TRANSPARENT(color) == 0)
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							display.plot(color, x1 + x * s + jx, y1 + y * s + jy);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
 				x++;
 				color = (readMem(adr) & 0xf);
 				if(IS_TRANSPARENT(color) == 0)
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							display.plot(color, x1 + x * s + jx, y1 + y * s + jy);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
 				adr++;
 			}
 			adr += add_next_row;
@@ -1000,19 +1029,19 @@ function Cpu(){
 				if(bit & 0x80){
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							display.plot(color, x1 + x * s + jx, y1 + y * s + jy);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
 				}
 				else{
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							display.plot(bgcolor, x1 + x * s + jx, y1 + y * s + jy);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, bgcolor);
 				}
 				bit = bit << 1;
 				i++;
 			}
 	}
 
-	function drawTileMap(x0, y0, celx, cely, celw, celh, layer){
+	function drawTileMap(celx, cely, x0, y0, celw, celh, layer){
 		x0 = fromInt16(x0);
 		y0 = fromInt16(y0);
 
@@ -1036,17 +1065,17 @@ function Cpu(){
 	
 	function drawFastVLine(x, y1, y2, color){
 		for(var i = y1; i <= y2; i++)
-			display.plot(color, x, i);
+			setPix(x, i, color);
 	}
 	
 	function drawFastHLine(x1, x2, y, color){
 		for(var i = x1; i <= x2; i++)
-			display.plot(color, i, y);
+			setPix(i, y, color);
 	}
 
 	function drawFHLine(x, y, w, color){
 		for(var i = x; i < x+w; i++)
-			display.plot(color, i, y);
+			setPix(i, y, color);
 	}
 	
 	function drawLine(x1, y1, x2, y2) {
@@ -1070,9 +1099,9 @@ function Cpu(){
 		var signX = x1 < x2 ? 1 : -1;
 		var signY = y1 < y2 ? 1 : -1;
 		var error = deltaX - deltaY;
-		display.plot(fgcolor, x2, y2);
+		setPix(x2, y2, fgcolor);
 		while(x1 != x2 || y1 != y2){
-			display.plot(fgcolor, x1, y1);
+			setPix(x1, y1, fgcolor);
 			var error2 = error * 2;
 			if(error2 > -deltaY){
 				error -= deltaY;
@@ -1803,6 +1832,12 @@ function Cpu(){
 								reg1 = (op2 & 0xf);
 								regy = (reg[reg1] & 0xff);
 								break;
+							case 0x50:
+								//CLIP R			D15R
+								reg1 = (op2 & 0xf);
+								var adr = reg[reg1];
+								setClip(readInt(adr+6), readInt(adr+4), readInt(adr+2), readInt(adr));
+								break;
 						}
 						break;
 					case 0xD2: 
@@ -1840,7 +1875,7 @@ function Cpu(){
 						// PPIX R,R		D3RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						display.plot(color, reg[reg1], reg[reg2]);
+						setPix(reg[reg1], reg[reg2], color);
 						break;
 					case 0xD4:
 						switch(op2 & 0xf0){
@@ -1938,7 +1973,7 @@ function Cpu(){
 					        	        // TACTM R    D4 FR
          						     	reg1 = op2 & 0xf;
               							reg2 = reg[reg1];
-						       		testActorMap(readInt(reg2 + 8), readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
+						       		testActorMap(readInt(reg2 + 12), readInt(reg2 + 10), readInt(reg2 + 8), readInt(reg2 + 6), readInt(reg2 + 4), readInt(reg2 + 2), readInt(reg2));
  				        	        	break;
 						
 						}
@@ -1992,12 +2027,12 @@ function Cpu(){
 						}
 						break;
 					case 0xD8:
-						// SCROLL R,R		D8RR
+						// SCROLL R,R		D8RR  disabled in espico
 						reg1 = (op2 & 0xf0) >> 4;//шаг, доделать
 						reg2 = op2 & 0xf;//направление
-						scrollScreen(1, reg[reg2]);
-						if(reg[reg2] == 0 || reg[reg2] == 2)
-							scrollScreen(1, reg[reg2]);
+						// /scrollScreen(1, reg[reg2]);
+						// if(reg[reg2] == 0 || reg[reg2] == 2)
+						// 	scrollScreen(1, reg[reg2]);
 						break;
 					case 0xD9:
 						// GETPIX R,R		D9RR
