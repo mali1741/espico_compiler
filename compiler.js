@@ -10,9 +10,9 @@ function tokenize(s) {
 	var l;
 	var lastDefine;
 	var tokenReplace = [
-		'ACTOR_X', 0, 'ACTOR_Y', 1, 'ACTOR_SPEEDX', 2, 'ACTOR_SPEEDY', 3, 'ACTOR_WIDTH', 4, 'ACTOR_HEIGHT', 5, 
+		'ACTOR_X', 0, 'ACTOR_Y', 1, 'ACTOR_SPEEDX', 2, 'ACTOR_SPEEDY', 3, 'ACTOR_HWIDTH', 4, 'ACTOR_HHEIGHT', 5, 
 		'ACTOR_ANGLE', 6, 'ACTOR_LIVES', 7, 'ACTOR_REFVAL', 8, 'ACTOR_FLAGS', 9, 'ACTOR_GRAVITY', 10,
-		'ACTOR_ON_COLLISION', 11, 'ACTOR_ON_EXIT_SCREEN', 12, 'ACTOR_ON_ANIMATE', 13, 
+		'ACTOR_ON_COLLISION', 11, 'ACTOR_ON_ANIMATE', 13, 
 		'ACTOR_SPRITE', 15, 'ACTOR_FRAME', 16, 'ACTOR_SW', 17, 'ACTOR_SH', 18,
 		'KEY_UP', 1, 'KEY_LEFT', 4, 'KEY_DOWN', 2, 'KEY_RIGHT', 8, 
 		'KEY_A', 16, 'KEY_B', 32, 'KEY_SELECT', 64, 'KEY_START', 128,
@@ -128,6 +128,10 @@ function tokenize(s) {
 				i++;
 				tokens[thisToken] += s[i];
 			}
+			if (s[i] == '-' && s[i + 1] == '>') {
+				i++;
+				tokens[thisToken] += s[i];
+			}
 			if(!(s[i] == '-' 
 					&& (tokens[thisToken - 1] == '=' || tokens[thisToken - 1] == '(' || tokens[thisToken - 1] == ',' || tokens[thisToken - 1] == '>' || tokens[thisToken - 1] == '<') 
 					&& s[i + 1] >= '0' && s[i + 1] <= '9')){
@@ -165,6 +169,7 @@ function compile(t) {
 	var thisTokenNumber = 0; //номер текущего токена
 	var thisToken; //текущий токен
 	var lastToken; //предыдущий токен
+	var typeTable = new Map();
 	var varTable = []; //таблица переменных
 	var localVarTable = []; //таблица локальных переменных
 	var functionTable = []; //таблица, содержащая имена функций и их исходный код на ассемблере
@@ -314,6 +319,15 @@ function compile(t) {
 					break;
 				case 21:
 					er = "main function entry point not found";
+					break;
+				case 22:
+					er = "name already used or reserved "+par;
+					break;
+				case 23:
+					er = "invalid name "+par;
+					break;
+				case 24:
+					er = "unexpected token, expected "+par;
 					break;
 			}			
 		info("" + line + " " + er);
@@ -643,6 +657,34 @@ function compile(t) {
 		else if (thisToken == ';')
 			previousToken();
 	}
+
+	function initTypes() {
+		typeTable.set('void',{name: 'void', length: 0, members: []});
+		typeTable.set('*void',{name: '*void', length: 1, members: []});
+		typeTable.set('int',{name: 'int', length: 1, members: []});
+		typeTable.set('*int',{name: '*int', length: 1, members: []});
+		typeTable.set('char',{name: 'char', length: 1, members: []});
+		typeTable.set('*char',{name: '*char', length: 1, members: []});
+		var actormembers = [
+		{name: "x", type: 'actorval', length: 1, index: 0},
+		{name: "y", type: 'actorval', length: 1, index: 1},
+		{name: "dx", type: 'actorval', length: 1, index: 2},
+		{name: "dy", type: 'actorval', length: 1, index: 3},
+		{name: "hw", type: 'actorval', length: 1, index: 4},
+		{name: "hh", type: 'actorval', length: 1, index: 5},
+		{name: "angle", type: 'actorval', length: 1, index: 6},
+		{name: "lives", type: 'actorval', length: 1, index: 7},
+		{name: "refval", type: 'actorval', length: 1, index: 8},
+		{name: "flags", type: 'actorval', length: 1, index: 9},
+		{name: "gravity", type: 'actorval', length: 1, index: 10},
+		{name: "oncollision", type: 'actorval', length: 1, index: 11},
+		{name: "onanimate", type: 'actorval', length: 1, index: 13},
+		{name: "sprite", type: 'actorval', length: 1, index: 15},
+		{name: "frame", type: 'actorval', length: 1, index: 16},
+		{name: "sw", type: 'actorval', length: 1, index: 17},
+		{name: "sh", type: 'actorval', length: 1, index: 18}];
+		typeTable.set('actor',{name: 'actor', length: 1, members: actormembers});
+	}
 	//добавляем новую переменную в таблицу
 	function addVar(type,isVolatile) {
 		if (isIntoFunction) {
@@ -653,162 +695,29 @@ function compile(t) {
 				localVarTable.push(thisToken);
 			}
 		} else {
+			var typedef = typeTable.get(type);
 			varTable.push({
 				name: thisToken,
-				type: type,
-				length: 1,
+				type: typedef.name,
+				length: typedef.length,
 				index: 0,
 				isvol: isVolatile,
 				uses: 0
 			});
-			asm.push(' _' + thisToken + ' word ? ');
-			if (type == 'actor') {
-				// define all fields as actorval
+			for(var i = 0; i < typedef.members.length; i++) {
 				varTable.push({
-					name: thisToken+".x",
-					type: 'actorval',
-					length: 1,
+					name: thisToken+"."+typedef.members[i].name,
+					type: typedef.members[i].type,
+					length: typedef.members[i].length,
 					isvol: true,
 					uses: 0,
-					index: 0
+					index: typedef.members[i].index
 				});
-				varTable.push({
-					name: thisToken+".y",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 1
-				});
-				varTable.push({
-					name: thisToken+".dx",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 2
-				});
-				varTable.push({
-					name: thisToken+".dy",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 3
-				});
-				varTable.push({
-					name: thisToken+".w",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 4
-				});
-				varTable.push({
-					name: thisToken+".h",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 5
-				});
-				varTable.push({
-					name: thisToken+".angle",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 6
-				});
-				varTable.push({
-					name: thisToken+".lives",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 7
-				});
-				varTable.push({
-					name: thisToken+".refval",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 8
-				});
-				varTable.push({
-					name: thisToken+".flags",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 9
-				});
-				varTable.push({
-					name: thisToken+".gravity",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 10
-				});
-				varTable.push({
-					name: thisToken+".oncollision",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 11
-				});
-				varTable.push({
-					name: thisToken+".onexitscreen",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 12
-				});
-				varTable.push({
-					name: thisToken+".onanimate",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 13
-				});
-				varTable.push({
-					name: thisToken+".sprite",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 15
-				});
-				varTable.push({
-					name: thisToken+".frame",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 16
-				});
-				varTable.push({
-					name: thisToken+".sw",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 17
-				});
-				varTable.push({
-					name: thisToken+".sh",
-					type: 'actorval',
-					length: 1,
-					isvol: true,
-					uses: 0,
-					index: 18
-				});
-
+			}
+			if (typedef.length == 1) {
+				asm.push(' _' + thisToken + ' word ? ');
+			} else {
+				asm.push(' _' + thisToken + ' word ' + typedef.length + ' dup(?) ');
 			}
 		}
 	}
@@ -1009,7 +918,9 @@ function compile(t) {
 					name: name,
 					type: type,
 					length: length,
-					index: 0
+					isvol: true,
+					index: 0,
+					uses: 0
 				});
 			}
 			//массив уже заполнен, считаем количество элементов
@@ -1036,11 +947,14 @@ function compile(t) {
 					dataAsm.push('_' + name + ': \n DW ' + buf.substring(0, buf.length - 1));
 				else if (type == 'char')
 					dataAsm.push('_' + name + ': \n DB ' + buf.substring(0, buf.length - 1));
+				else dataAsm.push('_' + name + ': \n DW ' + parseInt(buf.substring(0, buf.length - 1))*typeTable.get(type).length );
 				varTable.push({
 					name: name,
 					type: type,
 					length: length,
-					index: 0
+					isvol: true,
+					index: 0,
+					uses: 0
 				});
 			}
 		}
@@ -1051,12 +965,14 @@ function compile(t) {
 			if (type == 'char')
 				newArr = (' _' + name + ' byte ' + length + ' dup(?)');
 			else
-				newArr = (' _' + name + ' word ' + length + ' dup(?)');
+				newArr = (' _' + name + ' word ' + length*typeTable.get(type).length + ' dup(?)');
 			varTable.push({
 				name: name,
 				type: type,
 				length: length,
-				index: 0
+				isvol: true,
+				index: 0,
+				uses: 0
 			});
 			getToken();
 			if (thisToken != ']')
@@ -1087,9 +1003,9 @@ function compile(t) {
 						//info("" + lineCount + " неправильное объявление массива");
 				}
 				if (type == 'int')
-					newArr = ('_' + name + ': \n DW ' + buf.substring(0, buf.length - 1));
+					newArr = ('_' + name + ': \n DW ' + buf.substring(0, buf.length - 1))*1*typeTable.get(type).length;
 				else if (type == 'char')
-					newArr = ('_' + name + ': \n DB ' + buf.substring(0, buf.length - 1));
+					newArr = ('_' + name + ': \n DB ' + buf.substring(0, buf.length - 1))*1*typeTable.get(type).length;
 				if(nlength < length){
 					console.log(nlength);
 					for(var i = nlength; i <= length; i++)
@@ -1100,7 +1016,9 @@ function compile(t) {
 					name: name,
 					type: type,
 					length: length,
-					index: 0
+					isvol: true,
+					index: 0,
+					uses: 0
 				});
 			}
 			dataAsm.push(newArr);
@@ -1124,14 +1042,31 @@ function compile(t) {
 		}
 		return false;
 	}
-	//проверка, является ли токен t объявлением типа
-	function isType(t) {
-		if (t == 'int' || t == 'char' || t == 'void' || t == 'actor')
-			return true;
-		if (t == '*int' || t == '*char' || t == '*void')
+
+	function isReserved(t) {
+		return (t.match(/auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while/) !== null);
+	}
+
+	function isValidName(t) {
+		return ((t.match(/[a-zA-Z][a-zA-Z0-9_]*/) !== null) && !isReserved(t));
+	} 
+
+	function isUsedName(t) {
+		return (isNumber(t) || isVar(t) || isType(t) || isTypeDef(t) || isFunction(t));
+	}
+
+	function isTypeDef(t) {
+		if (t == 'struct')
 			return true;
 		return false;
 	}
+	
+	function isType(t) {
+		if (typeTable.has(t))
+			return true;
+		return false;
+	}
+
 	//проверка, является ли токен t числом
 	function isNumber(t) {
 		return !isNaN(Number(t)); //  && isFinite(t);
@@ -1144,6 +1079,18 @@ function compile(t) {
 		}
 		return Number(t); // parseInt(t);
 	}
+
+	function getStructMember(s,m) {
+		var typedef = typeTable.get(s);
+		if (typedef !== null) {
+			for (var i = 0; i < typedef.members.length; i++) {
+				if (typedef.members[i].name == m) {
+					return typedef.members[i];
+				}
+			}
+		}
+		return null;
+	}
 	//обрабатываем переменную
 	function varToken() {
 		var v = getVar(thisToken);
@@ -1155,6 +1102,9 @@ function compile(t) {
 		getToken();
 		//если переменная является массивом
 		if (thisToken == '[') {
+			var atype = typeTable.get(v.type);
+			var vtype = typeTable.get(v.type);
+			var vindex = 0;
 			//вычисление номера ячейки массива
 			getToken();
 			while (thisToken != ']') {
@@ -1169,6 +1119,18 @@ function compile(t) {
 				}
 			}
 			getToken();
+			if (thisToken.startsWith('.')) {
+				var vnames = thisToken.split('.');
+				var tmember = getStructMember(v.type, vnames[1]);
+
+				vindex = tmember.index;
+				vindex = (vindex > 0 && v.type != 'actorval') ? '.' + (vindex*2) : '';
+				// {name: "x", type: 'actorval', length: 1, index: 0},
+				vtype = typeTable.get(tmember.type);
+				// struct member value
+				// get member type and index
+				getToken();
+			}
 			//загрузка ячейки массива
 			if (thisToken != '=' && thisToken != '+=' && thisToken != '-=' && thisToken != '*=' && thisToken != '/=') {
 				previousToken();
@@ -1179,14 +1141,22 @@ function compile(t) {
 					} else
 						asm.push(' LDC R' + (registerCount - 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
 				} else {
-					if(v.type == '*int' && !point){
+					if(v.type.startsWith('*') && !point){
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
-						asm.push(' LDIAL R' + registerCount + ',(_' + v.name +')');
+						asm.push(' LDI R' + registerCount + ',(_' + v.name +')');
 						asm.push(' LDI R' + (registerCount - 1) + ',(R' + registerCount + '+R' + (registerCount - 1) + ')');
-					} else{
-						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
-						//asm.push(' LDI R' + (registerCount - 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
-						asm.push(' LDIAL R' + (registerCount - 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
+					} else {
+						if (atype.length > 1) {
+							asm.push(' LDC R15,'+atype.length);
+							asm.push(' MUL R' + (registerCount - 1) + ',R15');
+						}
+						/*if (vindex > 15) {
+							asm.push(' LDC R15,'+vindex);
+							asm.push(' ADD R' + (registerCount - 1) + ',R15');
+						} else if (vindex > 0) {
+							asm.push(' INC R' + (registerCount - 1) + ','+vindex);
+						} */
+						asm.push(' LDIAL R' + (registerCount - 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
 					}
 				}
 			}
@@ -1228,30 +1198,38 @@ function compile(t) {
 				} else {
 					if(v.type == '*int' && !point){
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
-						asm.push(' LDIAL R' + (registerCount + 1) + ',(_' + v.name +')');
+						asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name +')');
 						asm.push(' STI (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
 					} else{
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
-						if(op == '+='){
-							asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
-							asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
+						if (atype.length > 1) {
+							asm.push(' LDC R15,'+atype.length);
+							asm.push(' MUL R' + (registerCount - 1) + ',R15');
+						} /*
+						if (vindex > 15) {
+							if (vindex != atype.length) asm.push(' LDC R15,'+vindex);
+							asm.push(' ADD R' + (registerCount - 1) + ',R15');
+						} else if (vindex > 0) {
+							asm.push(' INC R' + (registerCount - 1) + ','+vindex);
+						} */
+						if (op != '=') {
+							asm.push(' LDIAL R' + (registerCount + 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
+							if(op == '+='){
+								asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
+							}
+							else if(op == '-='){
+								asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
+								asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+							}
+							else if(op == '*='){
+								asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
+							}
+							else if(op == '/='){
+								asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
+								asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+							}
 						}
-						else if(op == '-='){
-							asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
-							asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
-							asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
-						}
-						else if(op == '*='){
-							asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
-							asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
-						}
-						else if(op == '/='){
-							asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
-							asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
-							asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
-						}
-						//asm.push(' STI (_' + v.name + '+R' + (registerCount - 1) + '),R' + registerCount);
-						asm.push(' STIAL (_' + v.name + '+R' + (registerCount - 1) + '),R' + registerCount);
+						asm.push(' STIAL (_' + v.name + vindex + '+R' + (registerCount - 1) + '),R' + registerCount);
 					}
 				}
 				registerCount--;
@@ -1260,18 +1238,22 @@ function compile(t) {
 		//загрузка значения переменной
 		else if (thisToken != '=' && thisToken != '+=' && thisToken != '-=' && thisToken != '*=' && thisToken != '/=') {
 			previousToken();
+			var vnames = v.name.split('.');
+			var vindex = (v.index > 0 && v.type != 'actorval') ? '.' + (v.index*2) : '';
+			var vlabel = v.name;
+			if (vnames.length > 1) {
+				vlabel = vnames[0];
+			}
 			if (v.type == 'actorval') {
-				var names = v.name.split('.');
-				var structname = names[0];
-				asm.push(' LDI R' + registerCount + ',(_' + structname +')');
+				asm.push(' LDI R' + registerCount + ',(_' + vlabel +')');
 				asm.push(' LDC R15,'+v.index);
 				asm.push(' ACTGET R' + registerCount + ',R15');
 			} else if (v.length > 1) {
-				asm.push(' LDI R' + registerCount + ',_' + thisToken);
+                                asm.push(' LDI R' + registerCount + ',_' + vlabel);
 			} else if (v.type == 'char' || v.type == '*char') {
-				asm.push(' LDC R' + registerCount + ',(_' + thisToken + ')');
+				asm.push(' LDC R' + registerCount + ',(_' + vlabel + ')');
 			} else {
-				asm.push(' LDI R' + registerCount + ',(_' + thisToken + ')');
+				asm.push(' LDI R' + registerCount + ',(_' + vlabel + vindex + ')');
 			}
 			registerCount++;
 		}
@@ -1316,15 +1298,19 @@ function compile(t) {
 			if (getRangOperation(thisToken) > 0)
 				execut();
 			registerCount--;
-			var names = v.name.split('.');
-			var varname = names[0];
-			
-			if (op != '=') { 
-				asm.push(' LDI R' + (registerCount + 1) + ',(_' + varname + ')');
+			var vnames = v.name.split('.');
+			var vlabel = v.name;
+			var vindex = (v.index > 0 && v.type != 'actorval') ? '.' + (v.index*2) : '';
+                        if (vnames.length > 1) {
+                                vlabel = vnames[0];
+                        }
+	
+			if (op != '=') {
+				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
 				if (v.type == 'actorval') {
                                 	asm.push(' LDC R15,'+v.index);
 					asm.push(' ACTGET R' + (registerCount + 1) + ',R15');
-				}
+				}  
 			}
 			
 			if(op == '+='){
@@ -1343,10 +1329,10 @@ function compile(t) {
 			}
 			if (v.type == 'actorval') {
                                 asm.push(' LDC R15,'+v.index);
-				asm.push(' LDI R' + (registerCount + 1) + ',(_' + varname + ')');
+				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + ')');
                                 asm.push(' ACTSET R' + (registerCount + 1) + ',R15,R' + registerCount);
 			} else {
-				asm.push(' STI (_' + varname + '),R' + registerCount);
+				asm.push(' STI (_' + vlabel + vindex + '),R' + registerCount);
 			}
 			previousToken();
 		}
@@ -1794,6 +1780,60 @@ function compile(t) {
 			putError(lineCount, 14, '');
 			//info("" + lineCount + " отсутствует конструкция switch ");
 	}
+
+	function typedefToken() {
+		var typedef = thisToken;
+		if (typedef == 'struct') {
+			var members = [];
+			var structlen = 0;
+			getToken();
+			var typename = thisToken;
+			if (isUsedName(typename)) {
+				// wrong name
+				putError(lineCount, 22, par);
+				return;
+			}
+			getToken();
+			if (thisToken == '{') {
+				getToken();
+				while (isType(thisToken)) {
+					var membert = thisToken;
+					getToken();
+					while (isValidName(thisToken)) {
+						members.push({name: thisToken, type: membert, length: typeTable.get(membert).length, index: structlen});
+						structlen += typeTable.get(membert).length;
+						getToken();
+						if (thisToken == ';') break;
+						if (thisToken == ',') getToken();
+					}
+					if (thisToken != ';') {
+						putError(lineCount, 17, '');
+						return;
+					}
+					getToken();
+				}
+				if (thisToken != '}') {
+					putError(lineCount, 24, '}');
+					// unexpected token!
+					return;
+				}
+				getToken();
+				if (thisToken != ';') {
+					putError(lineCount, 24, ';');
+					// unexpected token!
+					return;
+				}
+				// complete struct, now define in typeTable
+				typeTable.set(typename, {name: typename, length: structlen, members: members}); 
+			} else {
+				putError(lineCount, 24, '{');
+				// brace expected!
+			}
+		} else {
+		  // error typedef not supported!
+		}
+	}
+
 	//обработка объявления типа, предполагаем что за ним следует объявление переменной или функции
 	function typeToken() {
 		var type = thisToken;
@@ -1938,7 +1978,9 @@ function compile(t) {
 			return;
 		}
 		removeNewLine();
-		if (isType(thisToken)) {
+		if (isTypeDef(thisToken)) {
+			typedefToken();
+		} else if (isType(thisToken)) {
 			typeToken();
 		} else if (functionVarTable.indexOf(thisToken) > 0 || localVarTable.indexOf(thisToken) > 0) {
 			localVarToken();
@@ -2122,6 +2164,7 @@ function compile(t) {
 
 	numberDebugString = [];
 	console.time("compile");
+	initTypes();
 	registerFunction('collx', 'int', ['int', 'n'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('colly', 'int', ['int', 'n'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
 	registerFunction('colla', 'int', ['int', 'n'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
@@ -2190,8 +2233,8 @@ function compile(t) {
 	registerFunction('partcolor', 'int', ['int', 'col1', 'int', 'col2', 'int', 'prefsteps', 'int', 'ptype'], 1, dataAsm, false, 0);
 	registerFunction('parttime', 'void', ['int', 'time', 'int', 'diff'], 1, 'SPART R0', 'builtin', 0);
 	registerFunction('partdir', 'void', ['int', 'gravity', 'int', 'dir', 'int', 'dir1', 'int', 'speed'], 1, 'SEMIT R0', 'builtin', 0);
-	registerFunction('partdraw', 'void', ['int', 'x', 'int', 'y', 'int', 'pcolor', 'int', 'radpx', 'int', 'count'], 1, 'DPART R0', 'builtin', 0);
-	registerFunction('partmove', 'void', [], 1, 'APART', 'inline', 0);
+	registerFunction('partset', 'void', ['int', 'x', 'int', 'y', 'int', 'pcolor', 'int', 'radpx', 'int', 'count'], 1, 'DPART R0', 'builtin', 0);
+	registerFunction('partdraw', 'void', [], 1, 'APART', 'inline', 0);
 	registerFunction('map', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'DRWMAP R0', 'builtin', 0);
 	dataAsm = [];
 	dataAsm.push('_printf: \n MOV R2,R0 \n ADD R2,R1 \n LDI R2,(R2) \n LDC R3,(R2) \nnext_printf_c:')

@@ -825,13 +825,16 @@ function asm(s) {
 	for (var i = 0; i < out.length; i++) {
 		if (typeof out[i] === 'string') {
 			var n;
+			var nparts = out[i].split('.');
 			if (label.indexOf(out[i]) > -1) {
-				n = label[label.indexOf(out[i]) + 1];
+				n = label[label.indexOf(nparts[0]) + 1];
+				if (nparts[1] != null) n += Number(nparts[1]); 
 				out[i] = n & 0xff;
 				i++;
 				out[i] = (n & 0xff00) >> 8;
 			} else {
-				n = variable[variable.indexOf(out[i]) + 1];
+				n = variable[variable.indexOf(nparts[0]) + 1];
+				if (nparts[1] != null) n += Number(nparts[1]);
 				n += out.length;
 				out[i] = n & 0xff;
 				i++;
