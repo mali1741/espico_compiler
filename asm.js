@@ -500,7 +500,7 @@ function asm(s) {
 						out.push(0xB0 + getRegister(a[i + 1])); //CMP R,CHR		BR XX
 						pushChar(a[i + 3]);
 					} else {
-						out.push(0xC1);
+						out.push(0xC0);
 						out.push(getRegister(a[i + 1]) << 4); //CMP R,INT		C0 R0 XXXX
 						pushInt(a[i + 3]);
 					}
@@ -551,6 +551,14 @@ function asm(s) {
 			case 'ABS':
 				out.push(0xAD); //ABS R				AD 4R
 				out.push(0x40 + (getRegister(a[i + 1]) & 0xf));
+				return;
+			case 'NOTL':
+				out.push(0xAD); //NOTL R			AD 5R
+				out.push(0x50 + (getRegister(a[i + 1]) & 0xf));
+				return;
+			case 'NOT':
+				out.push(0xAD); //NOT R				AD 6R
+				out.push(0x60 + (getRegister(a[i + 1]) & 0xf));
 				return;
 			case 'CLS':
 				out.push(0xD0); // CLS				D000
