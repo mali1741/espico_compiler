@@ -5,9 +5,9 @@ const PRG_SIZE = 16*1024;
 const SPRITE_COUNT = 128;
 const SPRITE_WIDTH = 8;
 const SPRITE_HEIGHT = 8;
-// 000ITBLR 000NNNNN   M00YYYYY EXXXXXXX
+// A00ITBLR 000NNNNN   M00YYYYY 0XXXXXXX
 const ACTOR_MAP_COLL=0x8000;
-const ACTOR_EXIT_EVENT=0x0080;
+const ACTOR_ANIM_EVENT=0x8000;
 const ACTOR_IN_EVENT=0x1000;
 const ACTOR_T_EVENT=0x0800;
 const ACTOR_B_EVENT=0x0400;
@@ -17,10 +17,11 @@ const ACTOR_R_EVENT=0x0100;
 const ACTOR_X_EVENT=0x0300;
 const SPRITE_MEMMAP = PRG_SIZE;
 const SPRITE_MAP_SIZE = 4096;
-const SPRITE_FLAGS_MEMMAP = SPRITE_MEMMAP + SPRITE_MAP_SIZE;	
+const SPRITE_FLAGS_MEMMAP = 32*1024;	
 const SPRITE_FLAGS_SIZE = 256;
-const TILEMAP_MEMMAP = 32*1024;
+const TILEMAP_MEMMAP = SPRITE_MEMMAP+SPRITE_MAP_SIZE;
 const TILEMAP_SIZE = 4096;
+const SCREEN_MEMMAP = TILEMAP_MEMMAP+TILEMAP_SIZE;
 const PARTICLE_COUNT = 32;
 const PARTICLE_SHRINK = 0x10;
 const PARTICLE_GRAV =   0x20;
@@ -75,6 +76,21 @@ function Cpu(){
                 return (readMem(SPRITE_FLAGS_MEMMAP+(spr & 255)));
         }
 
+	function resetActor(n) {
+		if (n == 0xffff) {
+			for(var i = 0; i < 32; i++){
+				actors[i]  = {
+					sprite: 0, frame: 0, x: 255, y: 255, speedx: 0, speedy: 0, sw: 8, sh: 8, hh: 0, hw: 0, angle: 0, refval: 0,
+					lives: 0, flags: 0, gravity: 0, oncollision: 0, onanimate: 0
+				};
+			}
+		} else {
+			actors[n & 31]  = {
+				sprite: 0, frame: 0, x: 255, y: 255, speedx: 0, speedy: 0, sw: 8, sh: 8, hh: 0, hw: 0, angle: 0, refval: 0,
+				lives: 0, flags: 0, gravity: 0, oncollision: 0, onanimate: 0
+			};
+		}
+	}
 
 	function init(){
 		for(var i = 0; i < 0xffff; i++)
@@ -82,7 +98,7 @@ function Cpu(){
 		for(var i = 1; i < 16; i++)
 			reg[i] = 0;
 		//указываем последнюю ячейку памяти для стека, если памяти меньше то и значение соответственно меняется
-		reg[0] = 0xffff;
+		reg[0] = PRG_SIZE;
 		pc = 0;
 		regx = 0;
 		regy = 0;
@@ -101,12 +117,7 @@ function Cpu(){
 		interrupt = 0;
 		frame_count = 0;
 		//задаем начальные координаты спрайтов вне границ экрана
-		for(var i = 0; i < 32; i++){
-			actors[i]  = {
-				sprite: 0, frame: 0, x: 255, y: 255, speedx: 0, speedy: 0, sw: 8, sh: 8, hh: 0, hw: 0, angle: 0, refval: 0,
-				lives: 0, flags: 0, gravity: 0, oncollision: 0, onanimate: 0
-			};	
-		}
+		resetActor(0xffff);
 		for(var i = 0; i < maxParticles; i++){
 			particles[i] = {time: 0, radpx: 0, radq: 0, x: 0, y: 0, gravity: 0, speedx: 0, speedy: 0, color: 0};
 		}
@@ -719,9 +730,11 @@ function Cpu(){
 	    
 	    if(coord(actors[i].y + actors[i].hh) < 0) event |= ACTOR_T_EVENT;
 	    else if (coord(actors[i].y - actors[i].hh) > 127) event |= ACTOR_B_EVENT;
-	    
+
+	    if (event == 0) event = ACTOR_IN_EVENT;
+	    event |= ACTOR_ANIM_EVENT;
 	    if(actors[i].onanimate > 0)
-		 setinterrupt(actors[i].onanimate, event | i, (frame_count & 31) | ((event!=0)?ACTOR_EXIT_EVENT:0));
+		 setinterrupt(actors[i].onanimate, event | i, (frame_count & 31));
 	  }
 	}
 
@@ -772,7 +785,7 @@ function Cpu(){
 			interrupt = pc;
 			pc = adr;
 		}
-		else if(interruptBuffer.length < 32){
+		else if(interruptBuffer.length < 32*4){
 			interruptBuffer.push(adr);
 			interruptBuffer.push(param2);
 			interruptBuffer.push(param1);
@@ -871,7 +884,7 @@ function Cpu(){
 	}
 
 	// 000I TBLR 000NNNNN  M00YYYYY0XXXXXXX
-	// 000I TBLR 000NNNNN  00000000000AAAAA
+	// 00EI TBLR 000NNNNN  00000000000AAAAA
 
 	function testActorMap(celx, cely, sx, sy, celw, celh, flags){
 	  sx = fromInt16(sx);
@@ -1506,6 +1519,14 @@ function Cpu(){
 								reg[0] += 2;
 						}
 						break;
+					case 0x9B:
+						// CALL (adr)		9B 00 XXXX
+						reg[0] -= 2;
+						if(reg[0] < 0)
+							reg[0] += 0xffff;
+						writeInt(reg[0], pc + 2);
+						pc = readInt(readInt(pc));
+						break;
 				}
 				break;
 			case 0xA0:
@@ -1658,17 +1679,27 @@ function Cpu(){
 						}
 						// COS R		AD 2R
 						else if(reg2 == 0x20){
-							n = Math.floor(Math.cos(fromInt16(reg[reg1])/360.0)*255);
+							n = Math.floor(Math.cos(fromInt16(reg[reg1])/57.4)*128);
 							reg[reg1] = ToInt16(n);
 						}
 						// SIN R		AD 3R
 						else if(reg2 == 0x30){
-							n = Math.floor(Math.sin(fromInt16(reg[reg1])/360.0)*255);
+							n = Math.floor(Math.sin(fromInt16(reg[reg1])/57.4)*128);
 							reg[reg1] = ToInt16(n);
 						}
 						// ABS R		AD 4R
 						else if(reg2 == 0x40){
 							n = Math.abs(fromInt16(reg[reg1]));
+							reg[reg1] = ToInt16(n);
+						}
+						// NOTL R		AD 5R
+						else if(reg2 == 0x50){
+							n = ((fromInt16(reg[reg1])) ? 0 : 1);
+							reg[reg1] = ToInt16(n);
+						}
+						// ABS R		AD 6R
+						else if(reg2 == 0x60){
+							n = ~(fromInt16(reg[reg1]));
 							reg[reg1] = ToInt16(n);
 						}
 						break;
@@ -1718,13 +1749,13 @@ function Cpu(){
 						else if(reg2 == 2)
 							reg[reg1] = ((n & 0xffff) > 0x7fff) ? 1 : 0;
 						else if(reg2 == 3){ //pozitive
-							if(n == 0 && ((n & 0xffff) <= 0x7fff))
+							if(n != 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 1;
 							else
 								reg[reg1] = 0;
 						}
 						else if(reg2 == 4){ //not pozitive
-							if(n == 0 && ((n & 0xffff) <= 0x7fff))
+							if(n != 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 0;
 							else
 								reg[reg1] = 1;
@@ -2072,11 +2103,11 @@ function Cpu(){
 						else if(reg[reg2] == 5)
 							n = actors[reg[reg1] & 31].hh;
 						else if(reg[reg2] == 6)
-							n = actors[reg[reg1] & 31].angle;
+							n = actors[reg[reg1] & 31].angle & 0x01FF;
 						else if(reg[reg2] == 7)
 							n = actors[reg[reg1] & 31].lives;
 						else if(reg[reg2] == 8)
-							n = actors[reg[reg1] & 31].collision;
+							n = actors[reg[reg1] & 31].refval;
 						else if(reg[reg2] == 9)
 							n = actors[reg[reg1] & 31].flags;
 						else if(reg[reg2] == 10)
@@ -2118,11 +2149,13 @@ function Cpu(){
 					actors[reg[reg1] & 31].lives = 1;
 				break;
 			case 0xF0:
-				// SSPRTV R,R,R	FR RR
+				// ACTSET R,R,R	FR RR
 				reg1 = (op1 & 0xf);//номер спрайта
 				reg2 = (op2 & 0xf0) >> 4;//type
 				reg3 = op2 & 0xf;//value
-				if(reg[reg2] == 0){
+				if(reg[reg2] == 0xffff)
+					resetActor(reg[reg1]);
+				else if(reg[reg2] == 0){
 					actors[reg[reg1] & 31].x = fromInt16(reg[reg3]);
 				}
 				else if(reg[reg2] == 1){
@@ -2138,8 +2171,10 @@ function Cpu(){
 					actors[reg[reg1] & 31].hw = reg[reg3];
 				else if(reg[reg2] == 5)
 					actors[reg[reg1] & 31].hh = reg[reg3];
-				else if(reg[reg2] == 6)
-					actors[reg[reg1] & 31].angle = fromInt16(reg[reg3]) % 360;
+				else if(reg[reg2] == 6) {
+					var v = fromInt16(reg[reg3]) % 360;
+					actors[reg[reg1] & 31].angle = (v < 0) ? v + 360 : v;
+				}
 				else if(reg[reg2] == 7){
 					if(reg[reg3] > 128)
 						actors[reg[reg1] & 31].lives = -(256 - (reg[reg3] & 0xff));
@@ -2193,13 +2228,16 @@ function Cpu(){
 		d = '';
 		for(var i = 0; i < 32; i++){
 			d += '\nactor ' + i + '\n';
-			d += 'A_SPRITE \t' + toHex4(actors[i].sprite) + '\n';
+			d += 'A_SPRITE \t' + actors[i].sprite + '\n';
+			d += 'A_FRAME \t' + actors[i].frame + '\n';
+			d += 'A_FLAGS \t' + toHex4(actors[i].flags) + '\n';
 			d += 'A_X \t' + actors[i].x + '\n';
 			d += 'A_Y \t' + actors[i].y + '\n';
 			d += 'A_SPEEDX \t' + actors[i].speedx + '\n';
 			d += 'A_SPEEDY \t' + actors[i].speedy + '\n';
 			d += 'A_WIDTH \t' + actors[i].hw + '\n';
 			d += 'A_HEIGHT \t' + actors[i].hh + '\n';
+			d += 'A_REFVAL \t' + actors[i].refval + '\n';
 			d += 'A_ANGLE \t' + actors[i].angle + '\n';
 			d += 'A_LIVES \t' + actors[i].lives + '\n';
 		}
