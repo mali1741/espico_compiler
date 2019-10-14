@@ -12,15 +12,16 @@ function tokenize(s) {
 	var tokenReplace = [
 		'ACTOR_X', 0, 'ACTOR_Y', 1, 'ACTOR_SPEEDX', 2, 'ACTOR_SPEEDY', 3, 'ACTOR_HWIDTH', 4, 'ACTOR_HHEIGHT', 5, 
 		'ACTOR_ANGLE', 6, 'ACTOR_LIVES', 7, 'ACTOR_REFVAL', 8, 'ACTOR_FLAGS', 9, 'ACTOR_GRAVITY', 10,
-		'ACTOR_ON_COLLISION', 11, 'ACTOR_ON_ANIMATE', 13, 
+		'ACTOR_ON_COLLISION', 11, 'ACTOR_ON_ANIMATE', 13,
 		'ACTOR_SPRITE', 15, 'ACTOR_FRAME', 16, 'ACTOR_SW', 17, 'ACTOR_SH', 18,
 		'KEY_UP', 1, 'KEY_LEFT', 4, 'KEY_DOWN', 2, 'KEY_RIGHT', 8, 
 		'KEY_A', 16, 'KEY_B', 32, 'KEY_SELECT', 64, 'KEY_START', 128,
 		'ACTOR_MAP_COLL', 0x8000, 'ACTOR_IN_EVENT', 0x1000, 'ACTOR_Y_EVENT', 0x0C00, 'ACTOR_X_EVENT', 0x0300, 
-		'ACTOR_EXIT_EVENT', 0x0080, 'ACTOR_MASK', 0x001F, 
+		'ACTOR_ANIM_EVENT', 0x8000, 'ACTOR_MASK', 0x001F, 
 		'ACTOR_T_EVENT', 0x0800, 'ACTOR_B_EVENT', 0x0400, 'ACTOR_L_EVENT', 0x0200, 'ACTOR_R_EVENT', 0x0100,
 		'ALL_ACTORS', -1,
-		'PARTICLE_SHRINK', 0x10, 'PARTICLE_GRAV', 0x20, 'PARTICLE_FRIC', 0x40, 'PARTICLE_STAR', 0x80
+		'PARTICLE_SHRINK', 0x10, 'PARTICLE_GRAV', 0x20, 'PARTICLE_FRIC', 0x40, 'PARTICLE_STAR', 0x80,
+		'SPRITE_MEMMAP', 0x4000, 'MAP_MEMMAP', 0x5000, 'SCREEN_MEMMAP', 0x6000
 		];
 	//упрощенный вариант #define, лишь замена
 	function define(s) {
@@ -71,15 +72,6 @@ function tokenize(s) {
 				i += 2;
 			}
 			break;
-		case '=':
-			if (s[i - 1] == '=' || s[i - 1] == '!' || s[i - 1] == '+' || s[i - 1] == '-' || s[i - 1] == '*' || s[i - 1] == '/') {
-				tokens[thisToken - 1] += '=';
-				break;
-			}
-		case '+':
-		case '-':
-		case '*':
-		case '%':
 		case '/':
 			//если комментарии, то убираем, оставляя переводы строк
 			if (s[i + 1] == '/') {
@@ -104,9 +96,15 @@ function tokenize(s) {
 				i++;
 				break;
 			}
+		case '=':
+		case '+':
+		case '-':
+		case '*':
+		case '%':
 		case '>':
 		case '<':
 		case '!':
+		case '~':
 		case '&':
 		case '^':
 		case '|':
@@ -124,11 +122,15 @@ function tokenize(s) {
 			if (tokens[thisToken] != '')
 				thisToken++;
 			tokens[thisToken] = s[i];
-			if ((s[i] == '>' || s[i] == '<') && s[i + 1] == '=') {
+			if ((s[i] == '>' || s[i] == '<' || s[i] == '+' || s[i] == '-' || s[i] == '*' || s[i] == '%' || s[i] == '/' || s[i] == '&' || s[i] == '|' || s[i] == '^' || s[i] == '!') && s[i + 1] == '=') {
 				i++;
 				tokens[thisToken] += s[i];
 			}
-			if (s[i] == '-' && s[i + 1] == '>') {
+			else if (s[i] == '-' && s[i + 1] == '>') {
+				i++;
+				tokens[thisToken] += s[i];
+			}
+			else if ((s[i] == '>' || s[i] == '<' || s[i] == '&' || s[i] == '|' || s[i] == '+' || s[i] == '-' || s[i] == '=') && s[i] == s[i + 1]) {
 				i++;
 				tokens[thisToken] += s[i];
 			}
@@ -360,20 +362,32 @@ function compile(t) {
 	//получение ранга операции для правильного порядка выполнения математических операций
 	function getRangOperation(t) {
 		switch (t) {
+		case '=':
+		case '+=':
+		case '-=':
+		case '/=':
+		case '%=':
+		case '&=':
+		case '|=':
+		case '^=':
+			return 0;
 		case '?':
 		case ':':
 			return 1;
 		case '|':
+		case '||':
 		case '&':
+		case '&&':
 		case '^':
 			return 2;
 		case '>':
 		case '<':
-		case '!':
 		case '==':
 		case '!=':
 		case '<=':
 		case '>=':
+		case '>>':
+		case '<<':
 			return 3;
 		case '+':
 		case '-':
@@ -382,8 +396,13 @@ function compile(t) {
 		case '/':
 		case '%':
 			return 5;
+		case '!':
+		case '~':
+		case '++':
+		case '--':
+			return 6;
 		}
-		return 0;
+		return -1;
 	}
 
 	//регистрация функции: имя, тип возвращаемых данных, операнды, объявлена ли функция, исходный код, нужно ли вставлять функцию вместо перехода
@@ -1113,7 +1132,7 @@ function compile(t) {
 					return;
 				}
 				execut();
-				if (getRangOperation(thisToken) == 0  && thisToken != ']'){
+				if (getRangOperation(thisToken) == -1  && thisToken != ']'){
 					getToken();
 					execut();
 				}
@@ -1122,6 +1141,10 @@ function compile(t) {
 			if (thisToken.startsWith('.')) {
 				var vnames = thisToken.split('.');
 				var tmember = getStructMember(v.type, vnames[1]);
+				if (tmember === null) {
+					putError(lineCount, 20, vnames[1]);
+					return;
+				}
 
 				vindex = tmember.index;
 				vindex = (vindex > 0 && v.type != 'actorval') ? '.' + (vindex*2) : '';
@@ -1298,6 +1321,7 @@ function compile(t) {
 			if (getRangOperation(thisToken) > 0)
 				execut();
 			registerCount--;
+			var point = (lastToken == '*' && registerCount == 1);
 			var vnames = v.name.split('.');
 			var vlabel = v.name;
 			var vindex = (v.index > 0 && v.type != 'actorval') ? '.' + (v.index*2) : '';
@@ -1307,10 +1331,13 @@ function compile(t) {
 	
 			if (op != '=') {
 				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
-				if (v.type == 'actorval') {
+				if(v.type == '*int' && !point){
+					asm.push(' MOV R' + (registerCount + 2) + ',R' + (registerCount + 1));
+					asm.push(' LDI R' + (registerCount + 1) + ',(R' + (registerCount + 2) + ')');
+				} else if (v.type == 'actorval') {
                                 	asm.push(' LDC R15,'+v.index);
 					asm.push(' ACTGET R' + (registerCount + 1) + ',R15');
-				}  
+				}
 			}
 			
 			if(op == '+='){
@@ -1327,7 +1354,14 @@ function compile(t) {
 				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
 				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 			}
-			if (v.type == 'actorval') {
+			if (v.type == '*int' && !point) {
+				if (op == '=') {
+					asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
+					asm.push(' STI (R' + (registerCount + 1) + '),R' + registerCount);
+				} else {
+					asm.push(' STI (R' + (registerCount + 2) + '),R' + registerCount);
+				}
+			} else 	if (v.type == 'actorval') {
                                 asm.push(' LDC R15,'+v.index);
 				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + ')');
                                 asm.push(' ACTSET R' + (registerCount + 1) + ',R15,R' + registerCount);
@@ -1340,10 +1374,8 @@ function compile(t) {
 	//обработка сложения/вычитания/декремента/инкремента
 	function addSub() {
 		var variable = lastToken;
-		var operation = thisToken;
-		getToken();
 		//если инкремент
-		if (thisToken == '+' && operation == '+') {
+		if (thisToken == '++') {
 			//если инкремент следует за переменной (var++)
 			if (isVar(variable) || localVarTable.indexOf(variable) > -1 || functionVarTable.indexOf(variable) > -1) {
 				if (localVarTable.indexOf(variable) > -1) {
@@ -1375,7 +1407,7 @@ function compile(t) {
 			getToken();
 		}
 		//если декремент
-		else if (thisToken == '-' && operation == '-') {
+		else if (thisToken == '--') {
 			if (isVar(variable) || localVarTable.indexOf(variable) > -1 || functionVarTable.indexOf(variable) > -1) {
 				if (localVarTable.indexOf(variable) > -1) {
 					if (registerCount == 1) {
@@ -1403,8 +1435,10 @@ function compile(t) {
 			}
 			getToken();
 		} else {
+			var operation = thisToken;
+			getToken();
 			execut();
-			if (getRangOperation(thisToken) == 0)
+			if (getRangOperation(thisToken) == -1)
 				if (!(thisToken == ',' || thisToken == ')' || thisToken == ';'))
 					getToken();
 			//если следующая операция выше рангом, то выполняем сразу ее
@@ -1424,7 +1458,7 @@ function compile(t) {
 		var operation = thisToken;
 		getToken();
 		execut();
-		if (getRangOperation(thisToken) == 0)
+		if (getRangOperation(thisToken) == -1)
 			if (!(thisToken == ',' || thisToken == ')' || thisToken == ';' || thisToken == '?'))
 				getToken();
 		//если следующая операция выше рангом, то выполняем сразу ее
@@ -1444,12 +1478,12 @@ function compile(t) {
 	function andOrXor() {
 		var operation = thisToken;
 		getToken();
-		if (thisToken == operation) {
+	/*	if (thisToken == operation) {
 			operation += thisToken;
 			getToken();
-		}
+		}*/
 		execut();
-		if (getRangOperation(thisToken) == 0)
+		if (getRangOperation(thisToken) == -1)
 			if (!(thisToken == ',' || thisToken == ')' || thisToken == ';'))
 				getToken();
 		//если следующая операция выше рангом, то выполняем сразу ее
@@ -1794,8 +1828,10 @@ function compile(t) {
 				return;
 			}
 			getToken();
+			removeNewLine();
 			if (thisToken == '{') {
 				getToken();
+				removeNewLine();
 				while (isType(thisToken)) {
 					var membert = thisToken;
 					getToken();
@@ -1811,6 +1847,7 @@ function compile(t) {
 						return;
 					}
 					getToken();
+					removeNewLine();
 				}
 				if (thisToken != '}') {
 					putError(lineCount, 24, '}');
@@ -1885,6 +1922,18 @@ function compile(t) {
 		}
 	}
 	//обработка указателей, стандарту не соответствует
+	function notToken() {
+		if (thisToken == '!') {
+			getToken();
+			execut();
+			asm.push(' NOTL R'+(registerCount-1));
+		} else if (thisToken == '~') {
+			getToken();
+			execut();
+			asm.push(' NOT R'+(registerCount-1));
+		}
+	}
+
 	function pointerToken() {
 		if (thisToken == '&') {
 			getToken();
@@ -1944,7 +1993,7 @@ function compile(t) {
 	//выполняем блок скобок
 	function skipBracket() {
 		while (thisToken && thisToken != ')' && thisToken != ';') {
-			if (getRangOperation(thisToken) == 0)
+			if (getRangOperation(thisToken) == -1)
 				getToken();
 			if (!thisToken)
 				return;
@@ -1998,19 +2047,21 @@ function compile(t) {
 			registerCount++;
 		} else if (getRangOperation(thisToken) > 0) {
 			//в этих условиях скорее всего работа с указателями, но это не всегда так, нужно улучшить
-			if (thisToken == '&' && (lastToken == '(' || lastToken == '=' || lastToken == ','))
+			if ((thisToken == '!' || thisToken == '~') && (getRangOperation(lastToken) >= 0 || lastToken == '(' || lastToken == ','))
+				notToken();
+			else if (thisToken == '&' && (getRangOperation(lastToken) >= 0 || lastToken == '(' || lastToken == ','))
 				pointerToken();
-			else if (thisToken == '*' && (lastToken == '(' || lastToken == '=' || lastToken == ','))
+			else if (thisToken == '*' && (getRangOperation(lastToken) >= 0 || lastToken == '(' || lastToken == ','))
 				pointerToken();
 			else if (thisToken == '*' && registerCount == 1){
 				getToken();
 				execut();
 			}
-			else if (thisToken == '+' || thisToken == '-')
+			else if (thisToken == '+' || thisToken == '-' || thisToken == '++' || thisToken == '--')
 				addSub();
 			else if (thisToken == '*' || thisToken == '/' || thisToken == '%')
 				divMul();
-			else if (thisToken == '&' || thisToken == '|' || thisToken == '^')
+			else if (thisToken == '&' || thisToken == '|' || thisToken == '^' || thisToken == '&&' || thisToken == '||' )
 				andOrXor();
 			else if (thisToken == '?') 
 				ternaryToken();
@@ -2132,7 +2183,7 @@ function compile(t) {
 						}
 					}
 				} 
-				if (!asm[pi].startsWith(' MOV') && !asm[pi].startsWith(' POP') && !asm[pi].startsWith(' LDRES')) {
+				if (!asm[pi].startsWith(' LDF') && !asm[pi].startsWith(' MOV') && !asm[pi].startsWith(' POP') && !asm[pi].startsWith(' LDRES')) {
 				  var opregs = asm[pi].match(/R\d+/);
 				  if (opregs && asm[i].match(opregs[0]+',0')) {
  				  	// then CMP with 0 is abundant
@@ -2165,11 +2216,15 @@ function compile(t) {
 	numberDebugString = [];
 	console.time("compile");
 	initTypes();
-	registerFunction('collx', 'int', ['int', 'n'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
-	registerFunction('colly', 'int', ['int', 'n'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
-	registerFunction('colla', 'int', ['int', 'n'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
+	registerFunction('setstack', 'void', ['int', 'a'], 1, 'MOV R0,R%1', 'inline', 0);
+	registerFunction('cbismapcoll', 'int', ['int', 'e'], 1, 'LDI R15,32768 \n AND R%1,R15', 'inline', 0);
+	registerFunction('cbisevent', 'int', ['int', 'n', 'int', 'event'], 1, 'AND R%2,R%1', 'inline', 0);
+	registerFunction('cbmapx', 'int', ['int', 'e'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
+	registerFunction('cbmapy', 'int', ['int', 'e'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
+	registerFunction('cbactor', 'int', ['int', 'n'], 1, 'LDC R15,31 \n AND R%1,R15', 'inline', 0);
 	registerFunction('i2f', 'int', ['int', 'i'], 1, 'LDC R15,128 \n MUL R%1,R15', 'inline', 0);
 	registerFunction('f2i', 'int', ['int', 'f'], 1, 'LDC R15,128 \n DIV R%1,R15', 'inline', 0);
+	registerFunction('floor', 'int', ['int', 'f'], 1, 'LDI R15,-128 \n AND R%1,R15', 'inline', 0);
 	registerFunction('frac', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('frac10k', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15 \n LDI R15,10000 \n MUL R%1,R15 \n LDRES 7,R%1', 'inline', 0);
 	registerFunction('fmf', 'int', ['int', 'f', 'int', 'g'], 1, 'MUL R%2,R%1 \n LDRES 7,R%2', 'inline', 0);
@@ -2212,8 +2267,8 @@ function compile(t) {
 	registerFunction('a2a', 'int', ['int', 'n1', 'int', 'n2'], 1, 'AGBACT R%2,R%1', 'inline', 0);
 	registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
 	registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
+	registerFunction('arst', 'void', ['int', 'n'], 1, 'LDI R15,-1 \n ACTSET R%1,R15,R15', 'inline', 0);
 	registerFunction('zoom', 'void', ['int', 's'], 1, 'ISIZE R%1', 'inline', 0);
-	registerFunction('scroll', 'void', ['char', 'direction'], 1, 'SCROLL R%1,R%1', 'inline', 0);
 	registerFunction('gotoxy', 'void', ['int', 'x', 'int', 'y'], 1, 'SETX R%2 \n SETY R%1', 'inline', 0);
 	registerFunction('camera', 'void', ['int', 'x', 'int', 'y'], 1, 'ESPICO 2,R%2 \n ESPICO 3,R%1', 'inline', 0);
 	registerFunction('clip', 'void', ['int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'CLIP R0', 'builtin', 0);
