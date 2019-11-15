@@ -17,11 +17,13 @@ var thisDebugString = 0;	//строка, которая в данный моме
 var globalJKey = 0;			//массив кнопок геймпада
 var globalKey = 0;			//текущая нажатая на клавиатуре кнопка
 var obj_wind;				//переменные, используемые для перемещения окон
+var soundTimer = 100;
 var obj_drag_wind;
 var delta_x = 0;
 var delta_y = 0;
 var file = '';
 var isDebug = false;
+var debugCallCount = 0;
 var tickCount = 0;
 var isRedraw = true;
 var language = 'eng';
@@ -120,19 +122,19 @@ function keyDownHandler(e) {
 	switch(e.keyCode){
 		case 38: 
 		case 87:
-			globalJKey |= 1;
+			globalJKey |= 4;
 			break;
 		case 40:
 		case 83:
-			globalJKey |= 2;
+			globalJKey |= 8;
 			break;
 		case 37:
 		case 65:
-			globalJKey |= 4;
+			globalJKey |= 1;
 			break;
 		case 39:
 		case 68:
-			globalJKey |= 8;
+			globalJKey |= 2;
 			break;
 		case 32: //B - space
 			globalJKey |= 32;
@@ -148,19 +150,19 @@ function keyUpHandler(e) {
 	switch(e.keyCode){
 		case 38: 
 		case 87:
-			globalJKey &= ~1;
+			globalJKey &= ~4;
 			break;
 		case 40:
 		case 83:
-			globalJKey &= ~2;
+			globalJKey &= ~8;
 			break;
 		case 37:
 		case 65:
-			globalJKey &= ~4;
+			globalJKey &= ~1;
 			break;
 		case 39:
 		case 68:
-			globalJKey &= ~8;
+			globalJKey &= ~2;
 			break;
 		case 32: //B - space
 			globalJKey &= ~32;
@@ -469,26 +471,33 @@ function setMemoryPage(n){
 }
 
 function run(){
-	//уменьшаем значение таймеров
+	initAudio();
+	// count down timers
 	for(var i = 0; i < 8; i++){
 		timers[i] -= 16;
 		if(timers[i] <= 0)
 			timers[i] = 0;
 	}
-	//обрабатываем команды процессора
+        soundTimer -= 16;
+        if (soundTimer <= 16)
+                soundTimer = playRtttl();
+        if (soundTimer > 2000)
+                soundTimer = 2000;
+	// step through cpu operations
 	for(var i=0;i<cpuSpeed;i++){
 		cpu.step();
 		i += cpuLostCycle;
 		cpuLostCycle = 0;
 	}
-	//обработка спрайтов
+	// check redraw flag
 	if(isRedraw){
-		// cpu.updateGame();
-		// cpu.drawBuffer();
-		// cpu.testSpriteCollision(isDebug);
 		isRedraw = false;
-		//выводим отладочную информацию
-		document.getElementById('debug').value = cpu.debug();
+		// don't call debug too often
+                debugCallCount++;
+                if (debugCallCount >= 10) {
+                        document.getElementById('debug').value = cpu.debug();
+                        debugCallCount = 0;
+                }
 	}
         timertime += 16;
         var diff = (new Date().getTime() - timerstart) - timertime;
@@ -579,16 +588,17 @@ function Display() {
 		}
 	}
 	
-	function char(chr, x, y, color, bgcolor){
+	function char(chr, x, y, color){
 		var c = chr.charCodeAt(0);
-		for(var i=0; i<5; i++ ) { // Char bitmap = 5 columns
-			var line = font[c * 5 + i];
-			for(var j=0; j<8; j++, line >>= 1) {
+		if (c >= 32 && c < (32 + (font.length / FONT_WIDTH))) {
+			c -= 32;
+		for(var i=0; i<FONT_WIDTH; i++ ) { // Char bitmap = 5 columns
+			var line = font[c * FONT_WIDTH + i];
+			for(var j=0; j<FONT_HEIGHT; j++, line >>= 1) {
 				if(line & 1)
 					drawPixel(color, x+i, y+j);
-				else
-					drawPixel(bgcolor, x+i, y+j);
 			}
+		}
 		}
 	}
 	

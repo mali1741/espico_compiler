@@ -29,19 +29,17 @@ const PARTICLE_FRIC =   0x40;
 const PARTICLE_STAR =   0x80;
 
 function Cpu(){
-	var mem = new Uint8Array(0x10000);			//память, максимум 65 534 байта
-	var reg = [];			//16 регистров, нулевой используется как указатель стека
-	var shadow_reg = [];			//16 регистров, нулевой используется как указатель стека
+	var mem = new Uint8Array(0x10000);			// 65536 bytes RAM
+	var reg = [];			//16 registers
+	var shadow_reg = [];			//16 shadow registers for interrupt handling
         var espico = {drawing: 0, palt: 1, coordshift: 0, clipx0: 0, clipy0: 0, clipx1: 128, clipy1: 128, camx: 0, camy: 0};
 	var regx = 0;			//неявный регистр, указывает на Х позицию символа в текстовом режиме
+	var nlregx = 0;			//неявный регистр, указывает на Х позицию символа в текстовом режиме
 	var regy = 0;			//Y позиция символа
 	var imageSize = 1;		//влияет на множитель размера выводимой картинки, не относится к спрайтам
-	var n = 0;
+	var n = 0;			// result of last operation (from wich flags are derived when needed)
 	var shadow_n = 0;
-	var pc = 0;				//указатель на текущую команду
-	// var carry = 0;			//флаг переполнения
-	// var zero = 0;			//флаг нуля
-	// var negative = 0;		//флаг отрицательности
+	var pc = 0;				//program counter
 	var interrupt = 0;		//флаг прерывания
 	var redraw = 0;			//флаг, устанавливаемый после перерисовки
 	var frame_count = 0;			//флаг, устанавливаемый после перерисовки
@@ -53,6 +51,7 @@ function Cpu(){
 	var color = 7;			//цвет рисования
 	var charArray = [];		//массив символов, выводимых на экран
 	var interruptBuffer = [];
+	var lastJKey = 0;
 	var keyPosition = 0;
 	var keyArray = "qwertyuiop[]{}()=789\basdfghjkl:;\"/#$@0456\nzxcvbnm<>?.,!%+*-123 ";
 	
@@ -93,14 +92,15 @@ function Cpu(){
 	}
 
 	function init(){
-		for(var i = 0; i < 0xffff; i++)
+		for(var i = 0; i < PRG_SIZE; i++)
 			mem[i] = 0;
 		for(var i = 1; i < 16; i++)
 			reg[i] = 0;
-		//указываем последнюю ячейку памяти для стека, если памяти меньше то и значение соответственно меняется
+		// set stack pointer to end of PRG space
 		reg[0] = PRG_SIZE;
 		pc = 0;
 		regx = 0;
+		nlregx = 0;
 		regy = 0;
 		imageSize = 1;
 		espico.drawing = 0;
@@ -116,7 +116,6 @@ function Cpu(){
 		color = 7;
 		interrupt = 0;
 		frame_count = 0;
-		//задаем начальные координаты спрайтов вне границ экрана
 		resetActor(0xffff);
 		for(var i = 0; i < maxParticles; i++){
 			particles[i] = {time: 0, radpx: 0, radq: 0, x: 0, y: 0, gravity: 0, speedx: 0, speedy: 0, color: 0};
@@ -127,13 +126,13 @@ function Cpu(){
 		for(var i = 0; i < 8; i++)
 			timers[i] = 0;
 	}
-	//загрузка программы
+	
 	function load(arr){
 		for(var i = 0; i < arr.length; i++)
 			mem[i] = arr[i];
 	}
 	
-	function loadHex(txt, match_section){
+	function loadHex(txt, match_sections){
 		var i = 0;
 		var hex = [];
 		var bytes_read = 0;
@@ -141,26 +140,23 @@ function Cpu(){
 		var store;
 		var max_bytes = 0;
 		var new_line = 1;
-		if (match_section) {
-			i = txt.indexOf("__"+match_section+"__");
+		if (Array.isArray(match_sections)) {
+		  for(var s = 0; s < match_sections.length; s++) {
+			i = txt.indexOf("__"+match_sections[s]+"__");
 			if (i == -1) {
 				// no such section
-				return;
+				continue;
 			}
-		}
-		while (i+1 < txt.length) {
+		  bytes_read = 0; // restart counter
+		  while (i+1 < txt.length) {
 			while (txt[i] === '\n') i++;
 			if (txt[i] == '_' && txt[i+1] == '_') {
 				if (bytes_read > 0) {
-					// report bytes read
-					info("cpu read "+bytes_read+" to section "+section);
-					if (match_section === section) {
-						info("cpu matching sector read, done");
-						return; // only read one section
-					}
+					break; // only read one section
 				}
 				// new section
 				if (txt.slice(i,i+7) === "__epo__") {
+					init();  // PRG section load requires cpu re-init
 					section = "epo";
 					store = 0;
 					max_bytes = PRG_SIZE;
@@ -194,12 +190,13 @@ function Cpu(){
 			} else {
 				i++;
 			}
-		}
-		if (bytes_read > 0){
+		  }
+		  if (bytes_read > 0){
 			// report bytes read and section
 			info("cpu read "+bytes_read+" to section "+section);
+		  }
+		  }
 		}
-		info(i+" chars parsed in total");
 	}
 
 	function exportHex(section) {
@@ -252,8 +249,22 @@ function Cpu(){
 	function readMem(adr){
 		return mem[adr & 0xffff];
 	}
+
+	function setMem(to_adr, val, num_bytes) {
+		val = val & 0xff;
+		for (var i = 0; i < num_bytes; i++) {
+			mem[to_adr++] = val;
+		}
+	}
+
+	function copyMem(to_adr, from_adr, num_bytes) {
+		for (var i = 0; i < num_bytes; i++) {
+			mem[to_adr++] = mem[from_adr++];
+		}
+	}
 	
 	function setRedraw(){
+		lastJKey = globalJKey;
 		redraw = 1;
 		frame_count++;
 	}
@@ -280,33 +291,6 @@ function Cpu(){
 		espico.clipy0 = (y < 0) ? 0 : y & 127;
 		espico.clipy1 = (y + h > 128) ? 128 : y+h;
 	}
-
-/*
-	function setFlags(n){
-		carry = (n > 0xffff) ? 1 : 0;
-		zero = (n == 0) ? 1 : 0;
-		negative = ((n & 0xffff) > 0x7fff) ? 1 : 0;
-		n = n & 0xffff;
-		return n;
-	}
-	
-	function setFlagsC(n){
-		carry = 0;
-		zero = 0;
-		negative = 0;
-		if(n > 0xff){
-			carry = 1;
-		}
-		if(n == 0){
-			zero = 1;
-		}
-		else if(n < 0){
-			negative = 1;
-		}
-		n = n & 0xff;
-		return n;
-	}
-*/
 
 	function getEspicoState(s){
 	  switch (s) {
@@ -461,43 +445,7 @@ function Cpu(){
 			for(var jy = y; jy < y + h; jy++)
 				setPix(jx, jy, c);
 	}
-/*	
-	function scrollScreen(step, direction){
-		var bufPixel, n;
-		if(direction == 2){
-			for(var y = 0; y < 128; y++){
-				bufPixel = display.getPixel(0, y);
-				for(var x = 1; x < 128; x++)
-					display.plot(display.getPixel(x, y), x - 1, y);
-				display.plot(bufPixel, 127, y);
-			}
-		}
-		else if(direction == 1){
-			for(var x = 0; x < 128; x++){
-				bufPixel = display.getPixel(x, 0);
-				for(var y = 1; y < 128; y++)
-					display.plot(display.getPixel(x, y), x, y - 1);
-				display.plot(bufPixel, x, 127);
-			}
-		}
-		else if(direction == 0){
-			for(var y = 0; y < 128; y++){
-				bufPixel = display.getPixel(127, y);
-				for(var x = 127; x > 0; x--)
-					display.plot(display.getPixel(x - 1, y), x, y);
-				display.plot(bufPixel, 0, y);
-			}
-		}
-		else {
-			for(var x = 0; x < 128; x++){
-				bufPixel = display.getPixel(x, 127);
-				for(var y = 127; y > 0; y--)
-					display.plot(display.getPixel(x, y - 1), x, y);
-				display.plot(bufPixel, x, 0);
-			}
-		}
-	}
-*/		
+
 	function setActorPosition(n, x1, y1){
 		actors[n].x = fromInt16(x1);
 		actors[n].y = fromInt16(y1);
@@ -549,18 +497,14 @@ function Cpu(){
 		else if (radpx > 15) radpx = 15;
 		// to enable colorfading without growing, set to 0
 
-		var radpt = (pcolor >> 8); 
+		var radpt = (pcolor >> 8) & 0xf0; 
 		var ccolor = (pcolor & 0xff);
 		var colsteps = (pcolor >> 8) & 0xf;
 		var radq = 255;
-		if (radpx == 0) {
-			if (colsteps > 1) radq = nearesthibit(Math.floor((emitter.timeparticle+1) / colsteps))-1;
-			radpt |= PARTICLE_SHRINK;
-			// radq = nearesthibit(Math.floor((emitter.timeparticle+1) / 2))-1;
-		} else {
-			radq = nearesthibit(Math.floor((emitter.timeparticle+1) / (radpx+1)))-1;
-			radpt |= (radpt & PARTICLE_SHRINK) ? radpx : 0;
-		}
+		if (radpx == 0) radpt |= PARTICLE_SHRINK;
+		if (colsteps > radpx) radq = nearesthibit(Math.floor((emitter.timeparticle+1) / colsteps))-1;
+		else radq = nearesthibit(Math.floor((emitter.timeparticle+1) / (radpx+1)))-1;
+		radpt |= (radpt & PARTICLE_SHRINK) ? radpx : 0;
 		// create count particles
 		if (count > PARTICLE_COUNT) count = PARTICLE_COUNT;
 		var n = emitter.nextp;
@@ -585,9 +529,7 @@ function Cpu(){
 	function randomD(a, b) {
 		var min = Math.min(a, b);
 		var max = Math.max(a, b);
-		var rand = min - 0.5 + Math.random() * (max - min + 1)
-		rand = Math.round(rand);
-		return rand;
+		return (Math.floor(Math.random() * (max - min + 1)) + min);
 	}
 	
 	function animateParticles(){
@@ -626,24 +568,23 @@ function Cpu(){
 					if ((particles[n].radpt & (PARTICLE_SHRINK | 0xf)) > PARTICLE_SHRINK) particles[n].radpt--; 
 					else if ((particles[n].radpt & (PARTICLE_SHRINK | 0xf)) < PARTICLE_SHRINK) particles[n].radpt++;
 					// cycle color here 
-					// particles[n].color = (particles[n].color & 0xf0) | ((particles[n].color + (particles[n].color >> 4)) & 0x0f);
-					particles[n].color = (particles[n].color << 4) | (particles[n].color >> 4);
-					// if (particles[n].color & 0xf0) particles[n].color = (particles[n].color >> 4);
+					if ((particles[n].color & 0xf) > (particles[n].color >> 4)) particles[n].color -= 1;
+					else if ((particles[n].color & 0xf) < (particles[n].color >> 4)) particles[n].color += 1;
+					// particles[n].color = (particles[n].color << 4) | (particles[n].color >> 4);
 				}
 				// check type here
 
 				if (particles[n].time & 1) {
-				// if (randomD(0,1) == 1) {
 					x += particles[n].speedx;
 					y += particles[n].speedy;
 					if (ptype & PARTICLE_GRAV) particles[n].speedy += emitter.gravity;
 				} else {
-					x += particles[n].speedx >> 2;
-                                        y += particles[n].speedy >> 2;
+					x += particles[n].speedx >>> 2;
+                                        y += particles[n].speedy >>> 2;
 				}
 				if (ptype & PARTICLE_FRIC) {
-					particles[n].speedx = particles[n].speedx >> 1;
-                                        particles[n].speedy = particles[n].speedy >> 1;
+					particles[n].speedx = particles[n].speedx >>> 1;
+                                        particles[n].speedy = particles[n].speedy >>> 1;
 				}
 					
 				// delete if outside screen
@@ -657,44 +598,6 @@ function Cpu(){
 		}
 	}
 
-/*	function redrawParticles(){
-		var n, i;
-		if(emitter.timer > 0){
-			emitter.timer -= 50;
-			i = emitter.count;
-			for(var n = 0; n < maxParticles; n++){
-				if(i == 0)
-					break;
-				if(particles[n].time <= 0
-					i--;
-					particles[n].time = emitter.timeparticle;
-					particles[n].x = emitter.x;
-					particles[n].y = emitter.y;
-					particles[n].color = emitter.color;
-					particles[n].speedx = randomD(emitter.speedx, emitter.speedx1);
-					particles[n].speedy = randomD(emitter.speedy, emitter.speedy1);
-					particles[n].gravity = emitter.gravity;
-				}
-			}
-		}
-		for(n = 0; n < maxParticles; n++)
-			if(particles[n].time > 0){
-				display.drawActorPixel(particles[n].color, particles[n].x, particles[n].y);
-				particles[n].time -= 50;		
-				if(randomD(0,1) == 1){
-					particles[n].x += particles[n].speedx;
-					particles[n].speedy += particles[n].gravity;
-					particles[n].y += particles[n].speedy;					
-				}
-				else{
-					particles[n].x += Math.floor(particles[n].speedx/2);
-					particles[n].y += Math.floor(particles[n].speedy/2);
-				}
-				if(particles[n].x < 0 || particles[n].x > 128 || particles[n].y < 0 || particles[n].y > 128)
-					particles[n].time = 0;
-			}
-	}*/
-	
 	function actorSetDirectionAndSpeed(n, speed, direction){
 		speed = fromInt16(speed);
 		direction = fromInt16(direction) % 360;
@@ -748,17 +651,7 @@ function Cpu(){
 	    if (actors[i].lives > 0)
 	      drawSprite(actors[i].sprite+actors[i].frame, coord(actors[i].x)-(actors[i].sw >> 1), coord(actors[i].y)-(actors[i].sh >> 1), actors[i].sw, actors[i].sh);
 	}
-/*
-	function flagsToByte(){
-		return (carry & 0x1) + ((zero & 0x1) << 1)  + ((negative & 0x1) << 2);
-	}
-	
-	function byteToFlags(b){
-		carry = b & 0x1;
-		zero = (b & 0x2) >> 1;
-		negative = (b & 0x4) >> 2;
-	}
-*/
+
 	function nextinterrupt(){
 	    reg[0] -= 2;
 	    writeInt(reg[0], interruptBuffer.pop());
@@ -1000,7 +893,7 @@ function Cpu(){
 				i++;
 			}
 	}
-	//функция рисования картинки, если ее размер отличается от 1
+
 	function drawImageS(adr, x1, y1, w, h){
                 var add_next_row = 0;
                 if (adr >= SPRITE_MEMMAP){
@@ -1127,55 +1020,31 @@ function Cpu(){
 		}
 	}
 	
-	function charLineUp(n){
-		display.reset();
-		for(var i = 0; i < 420 - n * 21; i++){
-			charArray[i] = charArray[i + n * 21];
-			display.char(charArray[i] , (i % 21) * 6, Math.floor(i / 21) * 8, 1, 0);
+	function prints(adr){
+		var i = 0;
+		var x = regx;
+		while(!(readMem(adr + i) == 0 || i > 1023)){
+			var c = String.fromCharCode(readMem(adr + i));
+			if (c == '\n'){
+				regy += FONT_HEIGHT;
+				x = nlregx;
+			} else {
+				display.char(c , x, regy, color);
+				x += FONT_WIDTH+1;
+			}
+			i++;
 		}
+		regy += FONT_HEIGHT;
+		regx = nlregx;
 	}
-	
-	function printc(c, fc, bc){
-		if(c == '\n'){
-			for(var i = regx; i <= 20; i++){
-				display.char(' ' , i * 6, regy * 8, fc, bc);
-				charArray[i + regy * 20] = ' ';
-			}
-			regy++;
-			regx = 0;
-			if(regy > 19){
-				regy = 19;
-				charLineUp(1);
-			}
-		}
-		else if(c == '\t'){
-			for(var i = 0; i <= regx % 5; i++){
-				display.char(' ' , regx * 6, regy * 8, fc, bc);
-				charArray[regx + regy * 20] = ' ';
-				regx++;
-				if(regx > 20){
-					i = 99;
-					regy++;
-					regx = 0;
-					if(regy > 19){
-						regy = 19;
-						charLineUp(1);
-					}
-				}
-			}
-		}
-		else{
-			display.char(c , regx * 6, regy * 8, fc, bc);
-			charArray[regx + regy * 20] = c;
-			regx++;
-			if(regx > 20){
-				regy++;
-				regx = 0;
-				if(regy > 19){
-					regy = 19;
-					charLineUp(1);
-				}
-			}
+
+	function printc(c){
+		if (c == '\n') {
+			regy += FONT_HEIGHT;
+			regx = nlregx;
+		} else {
+			display.char(c , regx, regy, color);
+			regx += FONT_WIDTH+1;
 		}
 	}
 	
@@ -1349,6 +1218,15 @@ function Cpu(){
 				switch(op1){ 
 					case 0x50:
 						//HLT				5000
+						//FLIP                          5050
+						if (op2 == 0x50) {
+							if (redraw) {
+								redraw = 0;
+								break;
+							}
+							// on hardware this is a good place to disable CPU 
+							// until redraw has been done 
+						}
 						pc -= 2;
 						break;
 					case 0x51:
@@ -1371,19 +1249,19 @@ function Cpu(){
 				}
 				break;
 			case 0x60:
-				// LDI R,(R+R)	6R RR
+				// LDIAL R,(R+R*2)	6R RR
 				reg1 = (op1 & 0xf);
 				reg2 = ((op2 & 0xf0) >> 4);
 				reg3 = (op2 & 0xf);
-				n = readInt(reg[reg2] + reg[reg3]);
+				n = readInt(reg[reg2] + reg[reg3]*2);
 				reg[reg1] = ToInt16(n);
 				break;
 			case 0x70:
-				// STI (R+R),R	7R RR
+				// STIAL (R+R*2),R	7R RR
 				reg1 = (op1 & 0xf);
 				reg2 = ((op2 & 0xf0) >> 4);
 				reg3 = (op2 & 0xf);
-				writeInt(reg[reg1] + reg[reg2], reg[reg3]);
+				writeInt(reg[reg1] + reg[reg2]*2, reg[reg3]);
 				break;	
 			case 0x80:
 				switch(op1){
@@ -1420,6 +1298,24 @@ function Cpu(){
 						reg[0] -= 2;
 						writeInt(reg[0], readInt(pc));
 						pc += 2;
+						break;
+					case 0x88:
+						// MEMSET R		88 0R
+						// MEMCPY R		88 1R
+						reg1 = (op2 & 0xf0);
+						reg2 = (op2 & 0x0f);
+						var adr = reg[reg2];
+						var ptr1 = (readInt(adr + 4) & 0x7fff);
+						var ptr2 = (readInt(adr + 2) & 0x7fff);
+						var numb = readInt(adr);
+						if (numb > 0x8000) numb = 0x8000;
+						if (ptr1 + numb > 0x8000) numb = 0x8000 - ptr1;
+						if (reg1 == 0x00) {
+							setMem(ptr1, ptr2 & 0xff, numb);
+						} else if (reg1 == 0x10) {
+							if (ptr2 + numb > 0x8000) numb = 0x8000 - ptr2;
+							copyMem(ptr1, ptr2, numb);
+						}
 						break;
 				}
 				break;
@@ -1489,11 +1385,15 @@ function Cpu(){
 						break;
 					case 0x99:
 						// CALL adr		99 00 XXXX
+						// CALL (adr)		99 10 XXXX
+						// CALL (adr+R)		99 2R XXXX
+						reg1 = op2 & 0xf;
 						reg[0] -= 2;
-						if(reg[0] < 0)
-							reg[0] += 0xffff;
+						if(reg[0] < 0) reg[0] += 0xffff;
 						writeInt(reg[0], pc + 2);
-						pc = readInt(pc);
+						if ((op2 & 0xf0) == 0x20) pc = readInt(readInt(pc) + reg[reg1]);
+						else if ((op2 & 0xf0) == 0x10) pc = readInt(readInt(pc));
+						else pc = readInt(pc);
 						break;
 					case 0x9A:
 						// RET			9A 00
@@ -1518,14 +1418,6 @@ function Cpu(){
 							else
 								reg[0] += 2;
 						}
-						break;
-					case 0x9B:
-						// CALL (adr)		9B 00 XXXX
-						reg[0] -= 2;
-						if(reg[0] < 0)
-							reg[0] += 0xffff;
-						writeInt(reg[0], pc + 2);
-						pc = readInt(readInt(pc));
 						break;
 				}
 				break;
@@ -1742,27 +1634,27 @@ function Cpu(){
 						//LDF R,F		C2 RF
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						if(reg2 == 0)
+						if(reg2 == 0)        // carry
 							reg[reg1] = (n > 0xffff) ? 1 : 0;
-						else if(reg2 == 1)
+						else if(reg2 == 1)   // zero
 							reg[reg1] = (n == 0) ? 1 : 0;
-						else if(reg2 == 2)
+						else if(reg2 == 2)   // negative
 							reg[reg1] = ((n & 0xffff) > 0x7fff) ? 1 : 0;
-						else if(reg2 == 3){ //pozitive
+						else if(reg2 == 3){  //pozitive
 							if(n != 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 1;
 							else
 								reg[reg1] = 0;
 						}
-						else if(reg2 == 4){ //not pozitive
+						else if(reg2 == 4){  //not pozitive
 							if(n != 0 && ((n & 0xffff) <= 0x7fff))
 								reg[reg1] = 0;
 							else
 								reg[reg1] = 1;
 						}
-						else if(reg2 == 5)
+						else if(reg2 == 5)   // not zero
 							reg[reg1] = (n == 0) ? 0 : 1;
-						else if(reg2 == 6){
+						else if(reg2 == 6){  // redraw
 							reg[reg1] = redraw;
 							redraw = 0;
 						}
@@ -1804,6 +1696,8 @@ function Cpu(){
 						//CLS		D000
 					          if (op2 == 0x00) {
 					            // clearScr(espico.bgcolor);
+						    regx = 0; regy = 0; nlregx = 0;
+						    setClip(0,0,128,128);
 						    display.clearScreen(bgcolor);
 					          } else if ((op2 & 0xf0) == 0x10) {
 					            reg1 = (op2 & 0xf);
@@ -1829,17 +1723,12 @@ function Cpu(){
 								//PUTC R	D10R
 								reg1 = (op2 & 0xf);
 								//console.log(String.fromCharCode(reg[reg1]) + ':' + reg[reg1]);
-								printc(String.fromCharCode(reg[reg1]), color, bgcolor);
+								printc(String.fromCharCode(reg[reg1]));
 								break;
 							case 0x10:
 								//PUTS R	D11R
 								reg1 = (op2 & 0xf);
-								var i = 0;
-								//console.log(String.fromCharCode(readMem(reg[reg1])));
-								while(!(readMem(reg[reg1] + i) == 0 || i > 1000)){
-									printc(String.fromCharCode(readMem(reg[reg1] + i)), color, bgcolor);
-									i++;
-								}
+								prints(reg[reg1]);
 								break;
 							case 0x20:
 								//PUTN R D12R
@@ -1850,13 +1739,14 @@ function Cpu(){
 								else
 									s = (reg[reg1] - 0x10000).toString(10);
 								for(var i = 0; i < s.length; i++){
-									printc(s[i], color, bgcolor);
+									printc(s[i]);
 								}
 								break;
 							case 0x30:
 								//SETX R			D13R
 								reg1 = (op2 & 0xf);
 								regx = (reg[reg1] & 0xff);
+								nlregx = regx;
 								break;
 							case 0x40:
 								//SETY R			D14R
@@ -1898,6 +1788,26 @@ function Cpu(){
 								// GETJ R			D21R
 								reg1 = (op2 & 0xf);
 								n = globalJKey;
+								reg[reg1] = ToInt16(n);
+								break;
+							case 0x20:
+								// BTN R			D22R
+								reg1 = (op2 & 0xf);
+								n = globalJKey;
+								if (reg[reg1] != 0xffff) {
+								  reg[reg1] &= 7;
+								  n &= (1 << reg[reg1]);
+								}
+								reg[reg1] = ToInt16(n);
+								break;
+							case 0x30:
+								// BTNP R			D23R
+								reg1 = (op2 & 0xf);
+								n = globalJKey & (~lastJKey);
+								if (reg[reg1] != 0xffff) {
+								  reg[reg1] &= 7;
+								  n &= (1 << reg[reg1]);
+								}
 								reg[reg1] = ToInt16(n);
 								break;
 						}
@@ -2140,13 +2050,40 @@ function Cpu(){
 				}
 				break;
 			case 0xE0:
-				// ACTPOS R,R,R	ERRR
-				reg1 = (op1 & 0xf);//номер спрайта
-				reg2 = (op2 & 0xf0) >> 4;//x
-				reg3 = op2 & 0xf;//y
-				setActorPosition(reg[reg1] & 0x1f, reg[reg2], reg[reg3]);
-				if(actors[reg[reg1] & 31].lives < 1)
-					actors[reg[reg1] & 31].lives = 1;
+				// SOUND
+				switch (op1) {
+                        	case 0xE0:
+                                	switch (op2) {
+                                       	// PLAYRT               E000
+                                	case 0x00:
+                                       		rtttl.play = 1;
+                                       		break;
+                                       	// PAUSERT              E001
+                                	case 0x01:
+                                       		rtttl.play = 0;
+                                       		break;
+                                       	// STOPRT               E002
+                                	case 0x02:
+                                       		rtttl.play = 0;
+                                       		rtttl.position = 0;
+                                       		break;
+                                	}
+                                	break;
+				case 0xE1:
+                                	// LOADRT               E10R
+                                	reg1 = (op2 & 0xf0) >> 4;
+                                	reg2 = op2 & 0xf;
+                                	rtttl.address = reg[reg1];
+                                	rtttl.loop = reg[reg2];
+                                	loadRtttl();
+                                	break;
+                        	case 0xE2:
+                                	// PLAYTN               E20R
+                                	reg1 = (op2 & 0xf0) >> 4;
+                                	reg2 = op2 & 0xf;
+                                	addTone(reg[reg1], reg[reg2]);
+                                	break;
+				}
 				break;
 			case 0xF0:
 				// ACTSET R,R,R	FR RR

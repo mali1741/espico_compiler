@@ -274,10 +274,6 @@ function asm(s) {
 						out.push((getRegister(a[i + 1]) << 4) + getRegister(a[i + 6]));
 						pushInt(a[i + 4]);
 						return;
-					} else if (getRegister(a[i + 4]) > -1 && a[i + 5] == '+') { //LDI R,(R+R)		6R RR
-						out.push(0x60 + getRegister(a[i + 1]));
-						out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 6]));
-						return;
 					} else if (getRegister(a[i + 4]) > -1) {
 						out.push(0x02); //LDI R,(R)		02 RR
 						out.push((getRegister(a[i + 1]) << 4) + getRegister(a[i + 4]));
@@ -295,6 +291,10 @@ function asm(s) {
 					out.push(0x08);
 					out.push((getRegister(a[i + 1]) << 4) + getRegister(a[i + 6]));
 					pushInt(a[i + 4]);
+				} else if (getRegister(a[i + 4]) > -1 && a[i + 5] == '+') { //LDIAL R,(R+R*2)	6R RR
+					out.push(0x60 + getRegister(a[i + 1]));
+					out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 6]));
+					return;
 				}
 				break;
 			case 'STI':
@@ -302,10 +302,6 @@ function asm(s) {
 					out.push(0x06);
 					out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 7]));
 					pushInt(a[i + 2]);
-					return;
-				} else if (getRegister(a[i + 2]) > -1 && a[i + 3] == '+') { //STI (R+R),R		7R RR
-					out.push(0x70 + getRegister(a[i + 2]));
-					out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 7]));
 					return;
 				} else if (getRegister(a[i + 2]) > -1) {
 					out.push(0x05); //STI (R),R		05 RR
@@ -323,6 +319,10 @@ function asm(s) {
 					out.push(0x09);
 					out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 7]));
 					pushInt(a[i + 2]);
+				} else if (getRegister(a[i + 2]) > -1 && a[i + 3] == '+') { //STIAL (R+R*2),R	7R RR
+					out.push(0x70 + getRegister(a[i + 2]));
+					out.push((getRegister(a[i + 4]) << 4) + getRegister(a[i + 7]));
+					return;
 				}
 				break;
 			case 'LDC':
@@ -399,6 +399,14 @@ function asm(s) {
 			case 'POPN':
 				out.push(0x81); //POPN R			81 0R
 				out.push(getRegister(a[i + 1]));
+				return;
+			case 'MEMSET':
+				out.push(0x88); //MEMSET R			88 0R
+				out.push(0x00 + getRegister(a[i + 1]));
+				return;
+			case 'MEMCPY':
+				out.push(0x88); //MEMCPY R			88 1R
+				out.push(0x10 + getRegister(a[i + 1]));
 				return;
 			case 'JMP':
 				out.push(0x90); //JMP adr			90 00 XXXX
@@ -612,6 +620,14 @@ function asm(s) {
 				out.push(0xD2); // GETJ R			D21R
 				out.push(0x10 + getRegister(a[i + 1]));
 				return;
+			case 'BTN':
+				out.push(0xD2); // BTN R			D22R
+				out.push(0x20 + getRegister(a[i + 1]));
+				return;
+			case 'BTNP':
+				out.push(0xD2); // BTNP R			D23R
+				out.push(0x30 + getRegister(a[i + 1]));
+				return;
 			case 'PPIX':
 				out.push(0xD3); // PPIX R,R		D3RR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
@@ -760,18 +776,47 @@ function asm(s) {
 				out.push(0xDF); // GTILEXY R,R		DF RR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
-			case 'ACTPOS':
-				out.push(0xE0 + getRegister(a[i + 1])); // ACTPOS R,R,R	ERRR
-				out.push((getRegister(a[i + 3]) << 4) + (getRegister(a[i + 5])));
-				return;
+                        case 'LOADRT':
+                                out.push(0xE1); // LOADRT R,R           E1RR
+                                out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
+                                return;
+                        case 'PLAYRT':
+                                out.push(0xE0); // PLAYRT               E000
+                                out.push(0x00);
+                                return;
+                        case 'PAUSERT':
+                                out.push(0xE0); // PAUSERT              E001
+                                out.push(0x01);
+                                return;
+                        case 'STOPRT':
+                                out.push(0xE0); // STOPRT               E002
+                                out.push(0x02);
+                                return;
+                        case 'PLAYTN':
+                                out.push(0xE2); // PLAYTN R,R           E2RR
+                                out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
+                                return;
 			case 'ACTSET':
 				out.push(0xF0 + getRegister(a[i + 1])); // ACTSET R,R,R	FRRR
 				out.push((getRegister(a[i + 3]) << 4) + (getRegister(a[i + 5])));
 				return;
 			case 'CALL':
-				out.push(0x99);
-				out.push(0x00);
-				pushInt(a[i + 1]);
+				if (a[i + 1] != '(') {
+					// CALL adr		99 00 XXXX
+					out.push(0x99);
+					out.push(0x00);
+					pushInt(a[i + 1]);
+				} else if (getRegister(a[i + 2]) == -1 && a[i + 3] == '+') {
+					// CALL (adr+R)		99 2R XXXX
+					out.push(0x99);
+					out.push(0x20 + getRegister(a[i + 4]));
+					pushInt(a[i + 2]);
+				} else {
+					// CALL (adr)		99 10 XXXX
+					out.push(0x99);
+					out.push(0x10);
+					pushInt(a[i + 2]);
+				}
 				return;
 			case 'RET':
 				out.push(0x9A);
@@ -780,6 +825,10 @@ function asm(s) {
 			case 'HLT':
 				out.push(0x50);
 				out.push(0x00);
+				return;
+			case 'FLIP':
+				out.push(0x50);
+				out.push(0x50);
 				return;
 			case 'STIMER':
 				out.push(0x51); // STIMER R,R		51RR

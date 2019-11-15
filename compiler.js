@@ -1,5 +1,14 @@
 "use strict";
 
+/*
+TODO:
+- Make pointers work
+- Call function through function pointer
+- More advanced local vars
+- Fixed point types, preferably adjustable like fp9q7, fp12q4 etc.
+*/
+
+
 // allow fixed point numbers; 9.7
 const FP_SCALE = 128;
 
@@ -12,10 +21,12 @@ function tokenize(s) {
 	var tokenReplace = [
 		'ACTOR_X', 0, 'ACTOR_Y', 1, 'ACTOR_SPEEDX', 2, 'ACTOR_SPEEDY', 3, 'ACTOR_HWIDTH', 4, 'ACTOR_HHEIGHT', 5, 
 		'ACTOR_ANGLE', 6, 'ACTOR_LIVES', 7, 'ACTOR_REFVAL', 8, 'ACTOR_FLAGS', 9, 'ACTOR_GRAVITY', 10,
-		'ACTOR_ON_COLLISION', 11, 'ACTOR_ON_ANIMATE', 13,
+		'ACTOR_ON_COLLISION', 11, 'ACTOR_OPTIONS', 14, 'ACTOR_ON_ANIMATE', 13,
 		'ACTOR_SPRITE', 15, 'ACTOR_FRAME', 16, 'ACTOR_SW', 17, 'ACTOR_SH', 18,
-		'KEY_UP', 1, 'KEY_LEFT', 4, 'KEY_DOWN', 2, 'KEY_RIGHT', 8, 
-		'KEY_A', 16, 'KEY_B', 32, 'KEY_SELECT', 64, 'KEY_START', 128,
+		'KEY_LEFT', 1, 'KEY_RIGHT', 2, 'KEY_UP', 4, 'KEY_DOWN', 8, 
+		'KEY_B', 16, 'KEY_A', 32, 'KEY_START', 64, 'KEY_SELECT', 128,
+		'BTN_LEFT', 1, 'BTN_RIGHT', 2, 'BTN_UP', 4, 'BTN_DOWN', 8, 
+		'BTN_B', 16, 'BTN_A', 32, 'BTN_START', 64, 'BTN_SELECT', 128, 'BTN_ALL', -1,
 		'ACTOR_MAP_COLL', 0x8000, 'ACTOR_IN_EVENT', 0x1000, 'ACTOR_Y_EVENT', 0x0C00, 'ACTOR_X_EVENT', 0x0300, 
 		'ACTOR_ANIM_EVENT', 0x8000, 'ACTOR_MASK', 0x001F, 
 		'ACTOR_T_EVENT', 0x0800, 'ACTOR_B_EVENT', 0x0400, 'ACTOR_L_EVENT', 0x0200, 'ACTOR_R_EVENT', 0x0100,
@@ -171,6 +182,7 @@ function compile(t) {
 	var thisTokenNumber = 0; //номер текущего токена
 	var thisToken; //текущий токен
 	var lastToken; //предыдущий токен
+	var pointerstar = false;
 	var typeTable = new Map();
 	var varTable = []; //таблица переменных
 	var localVarTable = []; //таблица локальных переменных
@@ -482,7 +494,7 @@ function compile(t) {
 		}
 		getToken();
 		removeNewLine();
-		//если следует точка с запятой, значит тело функции будет описано дальше. Регистрируем функцию, что бы можно было ее использовать
+		//if a semicolon follows, then the function body will be described later. Register a function so that you can use it
 		if (thisToken == ';') {
 			registerFunction(name, type, functionVarTable, 0, [], 0, 0);
 		}
@@ -698,6 +710,7 @@ function compile(t) {
 		{name: "gravity", type: 'actorval', length: 1, index: 10},
 		{name: "oncollision", type: 'actorval', length: 1, index: 11},
 		{name: "onanimate", type: 'actorval', length: 1, index: 13},
+		{name: "options", type: 'actorval', length: 1, index: 14},
 		{name: "sprite", type: 'actorval', length: 1, index: 15},
 		{name: "frame", type: 'actorval', length: 1, index: 16},
 		{name: "sw", type: 'actorval', length: 1, index: 17},
@@ -706,6 +719,11 @@ function compile(t) {
 	}
 	//добавляем новую переменную в таблицу
 	function addVar(type,isVolatile) {
+		var typedef = typeTable.get(type);
+		if (typedef == null) {
+			putError(lineCount, 20, type);
+			return;
+		}
 		if (isIntoFunction) {
 			if (type == 'actor') {
 				putError(lineCount, 9, 'actor');
@@ -714,7 +732,6 @@ function compile(t) {
 				localVarTable.push(thisToken);
 			}
 		} else {
-			var typedef = typeTable.get(type);
 			varTable.push({
 				name: thisToken,
 				type: typedef.name,
@@ -760,9 +777,9 @@ function compile(t) {
 	//обрабатываем переменные, данные которых содержатся на стеке
 	function localVarToken() {
 		var type,l,op;
-		var point = false;
-		if(lastToken == '*' && registerCount == 1)
-			point = true;
+		var point = pointerstar;
+		// if(lastToken == '*' && registerCount == 1)
+		// 	point = true;
 		var number = functionVarTable.indexOf(thisToken);
 		if (number == -1) {
 			number = localVarTable.indexOf(thisToken);
@@ -800,7 +817,7 @@ function compile(t) {
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						//asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 						asm.push(' LDIAL R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
-						asm.push(' LDC R' + (registerCount - 1) + ',(R' + (registerCount + 1) + '+R' + (registerCount - 1) + ')');
+						asm.push(' LDIAL R' + (registerCount - 1) + ',(R' + (registerCount + 1) + '+R' + (registerCount - 1) + ')');
 					} else
 						putError(lineCount, 9, '');
 						//info("" + lineCount + " работа с локальными массивами не поддерживается ");
@@ -828,7 +845,7 @@ function compile(t) {
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						//asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 						asm.push(' LDIAL R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
-						asm.push(' STC (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
+						asm.push(' STIAL (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
 					} else{
 						putError(lineCount, 9, '');
 						//info("" + lineCount + " работа с локальными массивами не поддерживается ");
@@ -1063,7 +1080,7 @@ function compile(t) {
 	}
 
 	function isReserved(t) {
-		return (t.match(/auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while/) !== null);
+		return (t.match(/auto|break|byte|case|char|const|continue|default|do|double|else|enum|extern|false|float|for|goto|if|int|long|register|return|short|signed|sizeof|static|struct|switch|true|typedef|union|unsigned|void|volatile|while/) !== null);
 	}
 
 	function isValidName(t) {
@@ -1113,17 +1130,17 @@ function compile(t) {
 	//обрабатываем переменную
 	function varToken() {
 		var v = getVar(thisToken);
-		var point = false;
+		var point = pointerstar;
 		var op;
 		var thisLine = lineCount;
-		if(lastToken == '*' && registerCount == 1)
-			point = true;
+		//if(lastToken == '*' && registerCount == 1)
+		//	point = true;
 		getToken();
 		//если переменная является массивом
 		if (thisToken == '[') {
 			var atype = typeTable.get(v.type);
 			var vtype = typeTable.get(v.type);
-			var vindex = 0;
+			var vindex = '';
 			//вычисление номера ячейки массива
 			getToken();
 			while (thisToken != ']') {
@@ -1139,10 +1156,16 @@ function compile(t) {
 			}
 			getToken();
 			if (thisToken.startsWith('.')) {
-				var vnames = thisToken.split('.');
-				var tmember = getStructMember(v.type, vnames[1]);
+				var mname = thisToken.substring(1);
+				var tmember; // = getStructMember(v.type, mname);
+				if (v.type.startsWith('*')) {
+					tmember = getStructMember(v.type.substring(1), mname);
+				} else {
+					tmember = getStructMember(v.type, mname);
+				}
+
 				if (tmember === null) {
-					putError(lineCount, 20, vnames[1]);
+					putError(lineCount, 20, mname);
 					return;
 				}
 
@@ -1167,7 +1190,8 @@ function compile(t) {
 					if(v.type.startsWith('*') && !point){
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						asm.push(' LDI R' + registerCount + ',(_' + v.name +')');
-						asm.push(' LDI R' + (registerCount - 1) + ',(R' + registerCount + '+R' + (registerCount - 1) + ')');
+						if (vindex !== '') asm.push(' INC R' + registerCount + ','+vindex.substring(1));
+						asm.push(' LDIAL R' + (registerCount - 1) + ',(R' + registerCount + '+R' + (registerCount - 1) + ')');
 					} else {
 						if (atype.length > 1) {
 							asm.push(' LDC R15,'+atype.length);
@@ -1219,10 +1243,11 @@ function compile(t) {
 						asm.push(' STC (_' + v.name + '+R' + (registerCount - 1) + '),R' + registerCount);
 					}
 				} else {
-					if(v.type == '*int' && !point){
+					if(v.type.startsWith('*') && !point){
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name +')');
-						asm.push(' STI (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
+						if (vindex !== '') asm.push(' INC R' + (registerCount + 1) + ','+vindex.substring(1));
+						asm.push(' STIAL (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
 					} else{
 						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						if (atype.length > 1) {
@@ -1313,6 +1338,7 @@ function compile(t) {
 			previousToken();
 			localVarToken();
 		} else {
+			var point = pointerstar;
 			getToken();
 			execut();
 			if (getRangOperation(thisToken) > 0)
@@ -1321,7 +1347,7 @@ function compile(t) {
 			if (getRangOperation(thisToken) > 0)
 				execut();
 			registerCount--;
-			var point = (lastToken == '*' && registerCount == 1);
+			// var point = (lastToken == '*' && registerCount == 1);
 			var vnames = v.name.split('.');
 			var vlabel = v.name;
 			var vindex = (v.index > 0 && v.type != 'actorval') ? '.' + (v.index*2) : '';
@@ -1331,7 +1357,7 @@ function compile(t) {
 	
 			if (op != '=') {
 				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
-				if(v.type == '*int' && !point){
+				if(v.type == '*int' && point){
 					asm.push(' MOV R' + (registerCount + 2) + ',R' + (registerCount + 1));
 					asm.push(' LDI R' + (registerCount + 1) + ',(R' + (registerCount + 2) + ')');
 				} else if (v.type == 'actorval') {
@@ -1354,7 +1380,7 @@ function compile(t) {
 				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
 				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 			}
-			if (v.type == '*int' && !point) {
+			if (v.type == '*int' && point) {
 				if (op == '=') {
 					asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
 					asm.push(' STI (R' + (registerCount + 1) + '),R' + registerCount);
@@ -1862,6 +1888,7 @@ function compile(t) {
 				}
 				// complete struct, now define in typeTable
 				typeTable.set(typename, {name: typename, length: structlen, members: members}); 
+				typeTable.set('*'+typename, {name: '*'+typename, length: 1, members: []}); 
 			} else {
 				putError(lineCount, 24, '{');
 				// brace expected!
@@ -1944,17 +1971,26 @@ function compile(t) {
 			} else if (isVar(thisToken)) {
 				asm.push(' LDI R' + registerCount + ',_' + thisToken);
 				registerCount++;
+			} else {
+				putError(lineCount, 24, " variable after &");
 			}
 		} else if (thisToken == '*') {
 			getToken();
 			if (functionVarTable.indexOf(thisToken) > 0) {
-				asm.push(' LDI R' + registerCount + ',(' + localStackLength * 2 + functionVarTable.length - functionVarTable.indexOf(thisToken) + 1 + '+R0) ;' + thisToken);
+				asm.push(' LDI R' + registerCount + ',(' + (localStackLength * 2 + functionVarTable.length + localVarTable.length - functionVarTable.indexOf(thisToken) + 1) + '+R0) ;' + thisToken);
 				asm.push(' LDI R' + registerCount + ',(R' + registerCount + ')');
 				registerCount++;
 			} else if (isVar(thisToken)) {
 				asm.push(' LDI R' + registerCount + ',(_' + thisToken + ')');
 				asm.push(' LDI R' + registerCount + ',(R' + registerCount + ')');
 				registerCount++;
+			} else if (thisToken == '(') {
+				execut();
+				registerCount--;
+				asm.push(' LDI R' + registerCount + ',(R' + registerCount + ')');
+				registerCount++;
+			} else {
+				putError(lineCount, 24, " ( or variable after *");
 			}
 		}
 	}
@@ -2054,8 +2090,10 @@ function compile(t) {
 			else if (thisToken == '*' && (getRangOperation(lastToken) >= 0 || lastToken == '(' || lastToken == ','))
 				pointerToken();
 			else if (thisToken == '*' && registerCount == 1){
+				pointerstar = true;
 				getToken();
 				execut();
+				pointerstar = false;
 			}
 			else if (thisToken == '+' || thisToken == '-' || thisToken == '++' || thisToken == '--')
 				addSub();
@@ -2217,14 +2255,21 @@ function compile(t) {
 	console.time("compile");
 	initTypes();
 	registerFunction('setstack', 'void', ['int', 'a'], 1, 'MOV R0,R%1', 'inline', 0);
+	registerFunction('memset', 'void', ['int', 'to', 'int', 'val', 'int', 'num'], 1, 'MEMSET R0', 'builtin', 0);
+	registerFunction('memcpy', 'void', ['int', 'to', 'int', 'from', 'int', 'num'], 1, 'MEMCPY R0', 'builtin', 0);
+	registerFunction('peek', 'int', ['int', 'adr'], 1, 'LDC R%1,(R%1)', 'inline', 0);
+	registerFunction('peek2', 'int', ['int', 'adr'], 1, 'LDI R%1,(R%1)', 'inline', 0);
+	registerFunction('poke', 'void', ['int', 'adr', 'int', 'val'], 1, 'STC (R%2),R%1', 'inline', 0);
+	registerFunction('poke2', 'void', ['int', 'adr', 'int', 'val'], 1, 'STI (R%2),R%1', 'inline', 0);
 	registerFunction('cbismapcoll', 'int', ['int', 'e'], 1, 'LDI R15,32768 \n AND R%1,R15', 'inline', 0);
 	registerFunction('cbisevent', 'int', ['int', 'n', 'int', 'event'], 1, 'AND R%2,R%1', 'inline', 0);
 	registerFunction('cbmapx', 'int', ['int', 'e'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('cbmapy', 'int', ['int', 'e'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
 	registerFunction('cbactor', 'int', ['int', 'n'], 1, 'LDC R15,31 \n AND R%1,R15', 'inline', 0);
-	registerFunction('i2f', 'int', ['int', 'i'], 1, 'LDC R15,128 \n MUL R%1,R15', 'inline', 0);
+	registerFunction('i2f', 'int', ['int', 'i'], 1, 'MULRES 7,R%1', 'inline', 0);
 	registerFunction('f2i', 'int', ['int', 'f'], 1, 'LDC R15,128 \n DIV R%1,R15', 'inline', 0);
-	registerFunction('floor', 'int', ['int', 'f'], 1, 'LDI R15,-128 \n AND R%1,R15', 'inline', 0);
+	registerFunction('flr', 'int', ['int', 'f'], 1, 'LDI R15,-128 \n AND R%1,R15', 'inline', 0);
+	registerFunction('ceil', 'int', ['int', 'f'], 1, 'LDI R15,127 \n AND R15,R%1 \n LDF R15,5 \n MULRES 7,R15 \n PUSH R15 \n LDI R15,-128 \n AND R%1,R15 \n POP R15 \n ADD R%1,R15', 'inline', 0);
 	registerFunction('frac', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('frac10k', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15 \n LDI R15,10000 \n MUL R%1,R15 \n LDRES 7,R%1', 'inline', 0);
 	registerFunction('fmf', 'int', ['int', 'f', 'int', 'g'], 1, 'MUL R%2,R%1 \n LDRES 7,R%2', 'inline', 0);
@@ -2232,7 +2277,7 @@ function compile(t) {
 	registerFunction('intcoords', 'void', [], 1, 'LDC R15,0 \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,7 \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('coordshift', 'void', ['int', 's'], 1, 'ESPICO 1,R%1', 'inline', 0);
-	registerFunction('flip', 'void', [], 1, '_flip:\n LDC R15,0 \n ESPICO 0,R15\n flip_delay: \n LDF R15,6\n CMP R15,0\n JZ flip_delay\n RET', false, 0);
+	registerFunction('flip', 'void', [], 1, 'FLIP', 'inline', 0);
 	registerFunction('rnd', 'int', ['int', 'i'], 1, 'RAND R%1', 'inline', 0);
 	registerFunction('sqrt', 'int', ['int', 'n'], 1, 'SQRT R%1', 'inline', 0);
 	registerFunction('cos', 'int', ['int', 'n'], 1, 'COS R%1', 'inline', 0);
@@ -2244,14 +2289,16 @@ function compile(t) {
 	registerFunction('printn', 'int', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
 	registerFunction('tmrget', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
 	registerFunction('tmrset', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
-	registerFunction('cls', 'int', [], 1, 'CLS', 'inline', 0);
+	registerFunction('cls', 'void', [], 1, 'CLS', 'inline', 0);
 	registerFunction('palrst', 'void', [], 1, 'RPALET', 'inline', 0);
 	registerFunction('palt', 'void', ['int', 'm'], 1, 'PALT R%1', 'inline', 0);
 	registerFunction('fcol', 'void', ['int', 'c'], 1, 'SFCLR R%1', 'inline', 0);
 	registerFunction('bcol', 'void', ['int', 'c'], 1, 'SBCLR R%1', 'inline', 0);
 	registerFunction('pal', 'void', ['int', 'n', 'int', 'c'], 1, 'SPALET R%2,R%1', 'inline', 0);
 	registerFunction('cget', 'int', [], 1, 'GETK R%0', 'inline', 0);
-	registerFunction('btn', 'int', [], 1, 'GETJ R%0', 'inline', 0);
+	registerFunction('kget', 'int', [], 1, 'GETJ R%0', 'inline', 0);
+	registerFunction('btn', 'int', ['int', 'b'], 1, 'BTN R%1', 'inline', 0);
+	registerFunction('btnp', 'int', ['int', 'b'], 1, 'BTNP R%1', 'inline', 0);
 	registerFunction('pset', 'void', ['int', 'x', 'int', 'y'], 1, 'PPIX R%2,R%1', 'inline', 0);
 	registerFunction('pget', 'int', ['int', 'x', 'int', 'y'], 1, 'GETPIX R%2,R%1', 'inline', 0);
 	registerFunction('atstcoll', 'void', [], 1, 'TACTC', 'inline', 0);
@@ -2264,12 +2311,18 @@ function compile(t) {
 	registerFunction('mget', 'int', ['int', 'x', 'int', 'y'], 1, 'GMAPXY R%2,R%1', 'inline', 0);
 	registerFunction('mset', 'void', ['int', 'x', 'int', 'y', 'int', 'v'], 1, 'SMAPXY R0', 'builtin', 0);
 
+        registerFunction('tone', 'void', ['int', 'freq', 'int', 'time'], 1, 'PLAYTN R%2,R%1', 'inline', 0);
+        registerFunction('loadrt', 'void', ['int', 'adr', 'int', 'loop'], 1, 'LOADRT R%2,R%1', 'inline', 0);
+        registerFunction('playrt', 'void', [], 1, 'PLAYRT', 'inline', 0);
+        registerFunction('pausert', 'void', [], 1, 'PAUSERT', 'inline', 0);
+        registerFunction('stoprt', 'void', [], 1, 'STOPRT', 'inline', 0);
+
 	registerFunction('a2a', 'int', ['int', 'n1', 'int', 'n2'], 1, 'AGBACT R%2,R%1', 'inline', 0);
 	registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
 	registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
 	registerFunction('arst', 'void', ['int', 'n'], 1, 'LDI R15,-1 \n ACTSET R%1,R15,R15', 'inline', 0);
 	registerFunction('zoom', 'void', ['int', 's'], 1, 'ISIZE R%1', 'inline', 0);
-	registerFunction('gotoxy', 'void', ['int', 'x', 'int', 'y'], 1, 'SETX R%2 \n SETY R%1', 'inline', 0);
+	registerFunction('cursor', 'void', ['int', 'x', 'int', 'y'], 1, 'SETX R%2 \n SETY R%1', 'inline', 0);
 	registerFunction('camera', 'void', ['int', 'x', 'int', 'y'], 1, 'ESPICO 2,R%2 \n ESPICO 3,R%1', 'inline', 0);
 	registerFunction('clip', 'void', ['int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'CLIP R0', 'builtin', 0);
 	registerFunction('line', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'DLINE R0', 'builtin', 0);
@@ -2292,10 +2345,10 @@ function compile(t) {
 	registerFunction('partdraw', 'void', [], 1, 'APART', 'inline', 0);
 	registerFunction('map', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'DRWMAP R0', 'builtin', 0);
 	dataAsm = [];
-	dataAsm.push('_printf: \n MOV R2,R0 \n ADD R2,R1 \n LDI R2,(R2) \n LDC R3,(R2) \nnext_printf_c:')
+	dataAsm.push('_printf: \n MOV R2,R0 \n ADD R2,R1 \n MOV R1,R2 \n LDI R2,(R2) \n LDC R3,(R2) \nnext_printf_c:')
 	dataAsm.push(' CMP R3,37 ;% \n JZ printf_get\n PUTC R3\n INC R2 \n LDC R3,(R2) \n JNZ next_printf_c');
 	dataAsm.push(' RET \nnext_printf_c_end:\n INC R2 \n LDC R3,(R2)\n JNZ next_printf_c \n RET\nprintf_get:');
-	dataAsm.push(' INC R2 \n LDC R3,(R2) \n CMP R3,37 ;%\n JZ printf_percent\n DEC R1,2 \n LDI R4,(R1+R0)');
+	dataAsm.push(' INC R2 \n LDC R3,(R2) \n CMP R3,37 ;%\n JZ printf_percent\n DEC R1,2 \n LDI R4,(R1)');
 	dataAsm.push(' CMP R3,100 ;d\n JZ printf_d \n CMP R3,105 ;i\n JZ printf_d \n CMP R3,115 ;s\n JZ printf_s \n CMP R3,99 ;c\n JZ printf_c');
 	dataAsm.push(' JMP next_printf_c \nprintf_percent:\n PUTC R3 \n JMP next_printf_c_end \nprintf_d: \n PUTN R4');
 	dataAsm.push(' JMP next_printf_c_end\nprintf_c: \n PUTC R4\n JMP next_printf_c_end\nprintf_s:\n PUTS R4 \n JMP next_printf_c_end');
@@ -2346,14 +2399,16 @@ function compile(t) {
 		if (isFunction('init')) {
 			gameloopAsm.push('CALL _init');
 		}
-		gameloopAsm.push('start_gameloop:');
 		gameloopAsm.push('CALL _update');
 		gameloopAsm.push('LDC R15,1 \n ESPICO 0,R15');
 		gameloopAsm.push('CALL _draw');
 		gameloopAsm.push('LDC R15,0 \n ESPICO 0,R15');
-		gameloopAsm.push('delayredraw:');
-		gameloopAsm.push('LDF R15,6\n CMP R15,0');
-		gameloopAsm.push('JZ delayredraw');
+		gameloopAsm.push('start_gameloop:');
+		gameloopAsm.push('CALL _update');
+		gameloopAsm.push('FLIP');
+		gameloopAsm.push('LDC R15,1 \n ESPICO 0,R15');
+		gameloopAsm.push('CALL _draw');
+		gameloopAsm.push('LDC R15,0 \n ESPICO 0,R15');
 		gameloopAsm.push('JMP start_gameloop');
 		gameloopAsm.push('end_gameloop: \n RET');
 		registerFunction('main', 'void', [], 1, gameloopAsm, false, 0);
@@ -2371,9 +2426,6 @@ function compile(t) {
                                 functionTable[i].use++;
                         }
                         if (functionTable[i].name == 'draw'){
-                                functionTable[i].use++;
-                        }
-                        if (functionTable[i].name == 'delayredraw'){
                                 functionTable[i].use++;
                         }
                  }
