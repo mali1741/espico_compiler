@@ -79,7 +79,7 @@ function SpriteEditor(){
 		updateText();
 	}
 
-        function loadHex(txt, match_section){
+        function loadHex(txt, match_sections){
                 var i = 0;
                 var hex = [];
                 var bytes_read = 0;
@@ -87,20 +87,19 @@ function SpriteEditor(){
 		var store = 0;
                 var max_bytes = 0;
                 var new_line = 1;
-                if (match_section) {
-                        i = txt.indexOf("__"+match_section+"__");
+		if (Array.isArray(match_sections)) {
+                  for(var s = 0; s < match_sections.length; s++) {
+                        i = txt.indexOf("__"+match_sections[s]+"__");
                         if (i == -1) {
                                 // no such section
-                                return;
+                                continue;
                         }
-                }
-                while (i+1 < txt.length) {
+		  bytes_read = 0;
+                  while (i+1 < txt.length) {
                         while (txt[i] === '\n') i++;
                         if (txt[i] == '_' && txt[i+1] == '_') {
                                 if (bytes_read > 0) {
-					info("sprite editor read "+bytes_read+" to section "+section);
-                                        // report bytes read
-                                        if (match_section) return; // only read one section
+					break; // only read one section
                                 }
                                 // new section
                                 if (txt.slice(i,i+7) === "__gfx__") {
@@ -121,10 +120,11 @@ function SpriteEditor(){
                                         max_bytes = 4096;
                                         bytes_read = 0;
                                 } else {
-                                        section = "none";
+                                        section = "unknown";
                                         store = 0;
                                         max_bytes = 0;
                                         bytes_read = 0;
+					break;
                                 }
                                 i += 7;
                         } else if (bytes_read < max_bytes) {
@@ -144,12 +144,13 @@ function SpriteEditor(){
                         } else {
                                 i++;
                         }
-                }
-                if (bytes_read > 0){
-			info("sprite editor read "+bytes_read+" to section "+section);
+                  }
+                  if (bytes_read > 0){
                         // report bytes read and section
-                }
-		// updateText();
+			info("sprite editor read "+bytes_read+" to section "+section);
+                  }
+		  }
+		}
         }
 	
 	function exportHex(section) {

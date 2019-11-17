@@ -177,10 +177,11 @@ function Cpu(){
 					max_bytes = TILEMAP_SIZE;
 					bytes_read = 0;
 				} else {
-					section = "none";
+					section = "unknown";
 					store = 0;
 					max_bytes = 0;
 					bytes_read = 0;
+					break;
 				}
 				i += 7;
 			} else if (bytes_read < max_bytes) {

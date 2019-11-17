@@ -115,11 +115,9 @@ void main(){
 						// if (document.getElementById("eposrc").checked) section.push('__src__');
 						var reader = new FileReader();
 						reader.onload = function() {
-							// read sprite map
-				           	 //  var doc = document.getElementById("input");
-				           	 // doc.value = reader.result;
-				           	 // lineCount();
-							// spriteEditor.edit();
+							if ((ext == "epo") && (document.getElementById("eposrc").checked)) {
+								loadSrc(reader.result);
+							}
 							spriteEditor.loadHex(reader.result, loadprops());
 							cpu.loadHex(reader.result, loadprops());
 						}
@@ -137,6 +135,25 @@ void main(){
 					if (document.getElementById("epomap").checked) sections.push('map');
 
 					return sections;
+				}
+
+        			function loadSrc(txt){
+                			var i = 0;
+                        		i = txt.indexOf("__src__");
+                        		if (i == -1) {
+                                		// no such section
+                                		return;
+                        		}
+					i += 7;
+                        		while (txt[i] === '\n') i++;
+					var e = txt.indexOf("__",i);
+					var doc = document.getElementById("input");
+					if (e == -1) {
+						doc.value = txt.substr(i);
+					} else {
+						doc.value = txt.substr(i, e-i);
+					}
+					lineCount();
 				}
 
 				document.getElementById('files').addEventListener('change', handleFileSelect, false);
