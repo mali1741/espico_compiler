@@ -748,7 +748,7 @@ function redraw() {
 		  cpu.setRedraw();
                 }
 		isRedraw = true;
-    }, 40);
+    }, 33);
 }
 
 function savebin(){

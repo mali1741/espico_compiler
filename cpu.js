@@ -453,8 +453,8 @@ function Cpu(){
 	}
 
 	function setParticleTime(time, timediff){
-		emitter.timeparticle = (time <= 10000)?Math.floor(time / 50):255;
-		emitter.timediff = (time-timediff <= 10000)?Math.floor((time-timediff)/ 50):255;
+		emitter.timeparticle = (time <= 32*255)?Math.floor(time / 32):255;
+		emitter.timediff = (time-timediff <= 32*255)?Math.floor((time-timediff)/ 32):255;
 	}
 
 	function setEmitter(gravity, dir, dir1, speed){
@@ -580,12 +580,12 @@ function Cpu(){
 					y += particles[n].speedy;
 					if (ptype & PARTICLE_GRAV) particles[n].speedy += emitter.gravity;
 				} else {
-					x += particles[n].speedx >>> 2;
-                                        y += particles[n].speedy >>> 2;
+					x += (particles[n].speedx / 4) >> 0;
+                                        y += (particles[n].speedy / 4) >> 0;
 				}
 				if (ptype & PARTICLE_FRIC) {
-					particles[n].speedx = particles[n].speedx >>> 1;
-                                        particles[n].speedy = particles[n].speedy >>> 1;
+					particles[n].speedx = ((particles[n].speedx / 2) >> 0);
+                                        particles[n].speedy = ((particles[n].speedy / 2) >> 0);
 				}
 					
 				// delete if outside screen
