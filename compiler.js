@@ -2464,7 +2464,7 @@ function compile(t) {
 	registerFunction('printc', 'char', ['char', 'c'], 1, 'PUTC R%1', 'inline', 0);
 	registerFunction('print', 'void', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
 	registerFunction('printn', 'void', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
-	registerFunction('printfp', 'void', ['int', 'f'], 1, 'CMP R%1,0 \n PUTRES '+FIXED_POINT_Q, 'inline', 0);
+	registerFunction('printfp', 'void', ['fixed', 'f'], 1, 'CMP R%1,0 \n PUTRES '+FIXED_POINT_Q, 'inline', 0);
 	registerFunction('tmrget', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
 	registerFunction('tmrset', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
 	registerFunction('cls', 'void', [], 1, 'CLS', 'inline', 0);
