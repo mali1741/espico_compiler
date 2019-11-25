@@ -471,6 +471,8 @@ function compile(t) {
 			typeOnStack[r] = 'char';
 		} else if (typeOnStack[r] == 'actorval' || type == 'actorval') {
 			typeOnStack[r] = type;
+		} else if (typeOnStack[r] == 'actor' || type == 'actor') {
+			typeOnStack[r] = type;
 		} else if (typeOnStack[r] == 'void' || type == 'void') {
 			typeOnStack[r] = type;
                 } else {
@@ -1299,7 +1301,7 @@ function compile(t) {
 						asm.push(' LDIAL R' + (registerCount - 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
 					}
 				}
-				typeOnStack[registerCount - 1] = v.type;
+				typeOnStack[registerCount - 1] = vtype.name;
 			}
 			//сохранение ячейки массива
 			else {
@@ -1351,32 +1353,32 @@ function compile(t) {
 						if (op != '=') {
 							asm.push(' LDIAL R' + (registerCount + 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
 							if(op == '+='){
-								typeCastToFirst(registerCount, v.type);
+								typeCastToFirst(registerCount, vtype.name);
 								asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
 							}
 							else if(op == '-='){
-								typeCastToFirst(registerCount, v.type);
+								typeCastToFirst(registerCount, vtype.name);
 								asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
 								asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 							}
 							else if(op == '*='){
 								asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
-								if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && ((v.type == 'fixed') || (v.type == 'actorval'))) {
+								if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && ((vtype.name == 'fixed') || (vtype.name == 'actorval'))) {
                                         				asm.push(' LDRES '+FIXED_POINT_Q+',R'+registerCount);
 								}
-								if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
+								if (vtype.name != 'fixed') typeCastToFirst(registerCount, vtype.name);
 							}
 							else if(op == '/='){
-				                                if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && (v.type == 'fixed') || (v.type == 'actorval')) {
+				                                if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && (vtype.name == 'fixed') || (vtype.name == 'actorval')) {
 				                                        asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount + 1)+' \n DIVRES 0,R'+registerCount);
                                 				} else {
-                                        				if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
+                                        				if (vtype.name != 'fixed') typeCastToFirst(registerCount, vtype.name);
                                         				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
                                         				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
                                 				}
 							}
 						}
-						typeCastToFirst(registerCount, v.type);
+						typeCastToFirst(registerCount, vtype.name);
 						asm.push(' STIAL (_' + v.name + vindex + '+R' + (registerCount - 1) + '),R' + registerCount);
 					}
 				}
@@ -2168,6 +2170,7 @@ function compile(t) {
 		dataAsm.push('_str' + labe + ':');
 		pushString();
 		asm.push(' LDI R' + registerCount + ',_str' + labe);
+		typeOnStack[registerCount] = '*char';
 		registerCount++;
 	}
 	//удаляем перевод строки, если есть
@@ -2443,14 +2446,9 @@ function compile(t) {
 	registerFunction('cbmapx', 'int', ['int', 'e'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('cbmapy', 'int', ['int', 'e'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
 	registerFunction('cbactor', 'int', ['int', 'n'], 1, 'LDC R15,31 \n AND R%1,R15', 'inline', 0);
-	registerFunction('i2f', 'fixed', ['int', 'i'], 1, 'MULRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
-	registerFunction('f2i', 'int', ['fixed', 'f'], 1, 'CMP R%1,0 \n DIVRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
 	registerFunction('flr', 'fixed', ['fixed', 'f'], 1, 'LDI R15,-'+(1 << FIXED_POINT_Q)+' \n AND R%1,R15', 'inline', 0);
 	registerFunction('ceil', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R15,R%1 \n LDF R15,5 \n MULRES '+FIXED_POINT_Q+',R15 \n PUSH R15 \n LDI R15,-'+(1 << FIXED_POINT_Q)+' \n AND R%1,R15 \n POP R15 \n ADD R%1,R15', 'inline', 0);
 	registerFunction('frac', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R%1,R15', 'inline', 0);
-	registerFunction('frac10k', 'int', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R%1,R15 \n LDI R15,10000 \n MUL R%1,R15 \n LDRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
-	registerFunction('fmf', 'fixed', ['fixed', 'f', 'fixed', 'g'], 1, 'MUL R%2,R%1 \n LDRES '+FIXED_POINT_Q+',R%2', 'inline', 0);
-	registerFunction('fdf', 'fixed', ['fixed', 'f', 'fixed', 'd'], 1, 'MULRES '+FIXED_POINT_Q+',R%2 \n DIVRES 0,R%1 \n MOV R%2,R%1', 'inline', 0);
 	registerFunction('intcoords', 'void', [], 1, 'LDC R15,0 \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,'+FIXED_POINT_Q+' \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('coordshift', 'void', ['int', 's'], 1, 'ESPICO 1,R%1', 'inline', 0);
@@ -2496,8 +2494,8 @@ function compile(t) {
         registerFunction('stoprt', 'void', [], 1, 'STOPRT', 'inline', 0);
 
 	registerFunction('a2a', 'int', ['int', 'n1', 'int', 'n2'], 1, 'AGBACT R%2,R%1', 'inline', 0);
-	registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
-	registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
+	// registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
+	// registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
 	registerFunction('arst', 'void', ['int', 'n'], 1, 'LDI R15,-1 \n ACTSET R%1,R15,R15', 'inline', 0);
 	registerFunction('flipxy', 'void', ['int', 'fxy'], 1, 'IMOPTS R%1', 'inline', 0);
 	registerFunction('zoom', 'void', ['int', 's'], 1, 'IMOPTS R%1', 'inline', 0);
