@@ -600,6 +600,10 @@ function asm(s) {
 				out.push(0xD1); // PUTN R			D12R
 				out.push(0x20 + getRegister(a[i + 1]));
 				return;
+			case 'PUTRES':
+				out.push(0xD1); // PUTRES R			D1BR
+				out.push(0xB0 + strToNum(a[i + 1]));
+				return;
 			case 'SETX':
 				out.push(0xD1); // SETX R			D13R
 				out.push(0x30 + getRegister(a[i + 1]));
@@ -608,8 +612,16 @@ function asm(s) {
 				out.push(0xD1); // SETY R			D14R
 				out.push(0x40 + getRegister(a[i + 1]));
 				return;
+			case 'DRWADR':
+				out.push(0xD1); //DRWADR R      		D1AR
+				out.push(0xA0 + getRegister(a[i + 1]));
+				return;
+			case 'RSTDAD':
+				out.push(0xD1); // RSTDAD			D1A0
+				out.push(0xA0);
+				return;
 			case 'CLIP':
-				out.push(0xD1); // CLIP R			D14R
+				out.push(0xD1); // CLIP R			D15R
 				out.push(0x50 + getRegister(a[i + 1]));
 				return;
 			case 'GETK':
@@ -652,8 +664,8 @@ function asm(s) {
 				out.push(0xD4); // GBCLR R			D44R
 				out.push(0x40 + getRegister(a[i + 1]));
 				return;
-			case 'ISIZE':
-				out.push(0xD4); // ISIZE			D45R
+			case 'IMOPTS':
+				out.push(0xD4); // IMOPTS			D45R
 				out.push(0x50 + getRegister(a[i + 1]));
 				return;
 			case 'DLINE':

@@ -9,8 +9,9 @@ TODO:
 */
 
 
-// allow fixed point numbers; 9.7
-const FP_SCALE = 128;
+// allow fixed point numbers; default is 9q7
+const DEFAULT_FIXED_POINT_Q = 7;
+var FIXED_POINT_Q = DEFAULT_FIXED_POINT_Q;
 
 //разбивка на токены
 function tokenize(s) {
@@ -23,6 +24,7 @@ function tokenize(s) {
 		'ACTOR_ANGLE', 6, 'ACTOR_LIVES', 7, 'ACTOR_REFVAL', 8, 'ACTOR_FLAGS', 9, 'ACTOR_GRAVITY', 10,
 		'ACTOR_ON_COLLISION', 11, 'ACTOR_OPTIONS', 14, 'ACTOR_ON_ANIMATE', 13,
 		'ACTOR_SPRITE', 15, 'ACTOR_FRAME', 16, 'ACTOR_SW', 17, 'ACTOR_SH', 18,
+		'IMG_FLIP_Y', 0x80, 'IMG_FLIP_X', 0x40,
 		'KEY_LEFT', 1, 'KEY_RIGHT', 2, 'KEY_UP', 4, 'KEY_DOWN', 8, 
 		'KEY_B', 16, 'KEY_A', 32, 'KEY_START', 64, 'KEY_SELECT', 128,
 		'BTN_LEFT', 1, 'BTN_RIGHT', 2, 'BTN_UP', 4, 'BTN_DOWN', 8, 
@@ -43,14 +45,26 @@ function tokenize(s) {
 					lastDefine = [def, repl];
 					return ' ';
 				});
-			if (lastDefine.length > 0)
+			if (lastDefine.length > 0) {
 				s = s.replace(new RegExp(lastDefine[0], 'g'), lastDefine[1]);
+				if (lastDefine[0] == 'FIXED_POINT_Q') {
+					var q = Number(lastDefine[1]);
+					if (q > 0 && q < 15) {
+						FIXED_POINT_Q = q;
+					} else {
+						info('#define FIXED_POINT_Q requires a value of 1-14, given was:' + lastDefine[1]);
+					}
+				}
+			}
 		}
 		return s;
 	}
-
+	
+	// Reset Q
+	FIXED_POINT_Q = DEFAULT_FIXED_POINT_Q;
+	// Read and replace defines
 	s = define(s);
-	s = s.replace(/#include[^\n]*/g, ''); //удаление инклюдов, дабы не мешали
+	s = s.replace(/#include[^\n]*/g, ''); // ignore includes
 	l = s.length;
 	tokens[0] = '';
 	for (var i = 0; i < l; i++) {
@@ -187,7 +201,7 @@ function compile(t) {
 	var varTable = []; //таблица переменных
 	var localVarTable = []; //таблица локальных переменных
 	var functionTable = []; //таблица, содержащая имена функций и их исходный код на ассемблере
-	var thisFunction;
+	var thisFunction = [];
 	var isIntoFunction = false; //находимся ли мы в теле функции
 	var functionVarTable = []; //таблица переменных, указанных в объявлении текущей обрабатываемой функции
 	var lineCount = 0; //номер текущей строки
@@ -196,6 +210,7 @@ function compile(t) {
 	var labelNumber = 0; //номер ссылки, необходим для создания уникальных имен ссылок
 	var localStackLength = 0; //используется в функциях для работы с локальными переменными относительно указателя стека
 	var switchStack = []; //указывает на последний switch, необходимо для обработки break
+        var typeOnStack = []; //type of register on stack
 
 	function putError(line, error, par){
 		var er = 'unknown';
@@ -296,7 +311,7 @@ function compile(t) {
 					er = "the function "+ par +" cannot return a value";
 					break;
 				case 9:
-					er = "working with local arrays/actors is not supported";
+					er = "local arrays/variables of type "+par+" is not supported";
 					break;
 				case 10:
 					er = "array length not specified";
@@ -305,7 +320,7 @@ function compile(t) {
 					er = "invalid array declaration";
 					break;
 				case 12:
-					er = "invalid number of arguments";
+					er = "invalid number of arguments "+par;
 					break;
 				case 13:
 					er = "expected opening bracket in construction " + par;
@@ -342,6 +357,9 @@ function compile(t) {
 					break;
 				case 24:
 					er = "unexpected token, expected "+par;
+					break;
+				case 25:
+					er = "warning: no casting done "+par;
 					break;
 			}			
 		info("" + line + " " + er);
@@ -417,6 +435,50 @@ function compile(t) {
 		return -1;
 	}
 
+        function typeCast(r1, type1, r2, type2) {
+                if (type1 != type2 && (type1 == 'fixed' || type2 == 'fixed')) {
+			var r = r1;
+			var t = type1;
+			if (type1 ==  'fixed') {
+				t = type2;
+				r = r2;
+			}
+                        if (t == 'int' || t == 'char') {
+                        	asm.push(' MULRES '+FIXED_POINT_Q+',R' + r);
+                                typeOnStack[r] = 'fixed';
+                	} else if (t == 'actorval' || t == 'void') {
+                        	typeOnStack[r] = type;
+                        } else {
+				// type warning
+				putError(lineCount, 25, "cannot cast R"+r+':'+t+'to fixed');
+			}
+                }
+        }
+
+        function typeCastToFirst(r, type) {
+		if (typeOnStack[r] == type) return;
+		if (typeOnStack[r] == 'fixed' && (type == 'int' || type == 'char')) {
+                        asm.push(' CMP R' + r +',0');
+			asm.push(' DIVRES '+FIXED_POINT_Q+',R' + r);
+                        typeOnStack[r] = 'int';
+                } else if ((typeOnStack[r] == 'int' || typeOnStack[r] == 'char') && type == 'fixed') {
+                        asm.push(' MULRES '+FIXED_POINT_Q+',R' + r);
+                        typeOnStack[r] = 'fixed';
+		} else if (typeOnStack[r] == 'char' && type == 'int') {
+			typeOnStack[r] = 'int';
+		} else if (typeOnStack[r] == 'int' && type == 'char') {
+			asm.push(' LDC R15,255 \n AND R'+r+',R15');
+			typeOnStack[r] = 'char';
+		} else if (typeOnStack[r] == 'actorval' || type == 'actorval') {
+			typeOnStack[r] = type;
+		} else if (typeOnStack[r] == 'void' || type == 'void') {
+			typeOnStack[r] = type;
+                } else {
+			// type warning
+			putError(lineCount, 25, 'cannot cast R'+r+':'+typeOnStack[r]+' to '+type);
+		}
+        }
+
 	//регистрация функции: имя, тип возвращаемых данных, операнды, объявлена ли функция, исходный код, нужно ли вставлять функцию вместо перехода
 	function registerFunction(name, ftype, operands, declar, asm, inline, varLength) {
 		var pos = -1;
@@ -453,7 +515,8 @@ function compile(t) {
 	function addFunction(type,isInline) {
 		var name = thisToken;
 		var start = 0;
-		thisFunction = name;
+		thisFunction[0] = name;
+		thisFunction[1] = type;
 		localVarTable = [];
 		functionVarTable = [];
 		registerCount = 1;
@@ -523,15 +586,16 @@ function compile(t) {
 			localVarTable = [];
 			isIntoFunction = false;
 		}
-		thisFunction = '';
+		thisFunction[0] = '';
+		thisFunction[1] = '';
 	}
 	//вставка кода функции
 	function inlineFunction(func) {
 		getToken();
+		var i = 0;
 		if (thisToken != ')') {
 			previousToken();
 			while (!(thisToken == ')' || thisToken == ';')) {
-				i++;
 				getToken();
 				if (!thisToken)
 					return;
@@ -544,6 +608,8 @@ function compile(t) {
 					else if (!(thisToken == ',' || thisToken == ')' || thisToken == ';'))
 						getToken();
 				}
+				typeCastToFirst(registerCount - 1, func.operands[i * 2]);
+				i++;
 				if (i > func.operands.length / 2 && !longArg) {
 					putError(lineCount, 3, t);
 					//info("" + lineCount + " ожидалась закрывающая скобка в функции " + t);
@@ -633,6 +699,8 @@ function compile(t) {
 					else if (!(thisToken == ',' || thisToken == ')' || thisToken == ';'))
 						getToken();
 				}
+				if (!longArg)
+					typeCastToFirst(registerCount - 1, func.operands[operandsCount * 2]);
 				registerCount--;
 				operandsCount++;
 				asm.push(' PUSH R' + registerCount);
@@ -653,7 +721,7 @@ function compile(t) {
 		if (longArg)
 			asm.push(' LDC R1,' + (operandsCount * 2));
 		//освобождаем место на стеке для переменных
-		if(func.varLength == 0 && thisFunction == func.name)
+		if(func.varLength == 0 && thisFunction[0] == func.name)
 			func.varLength = localVarTable.length;
 		if (func.varLength > 0) {
 			if (func.varLength < 15)
@@ -666,6 +734,7 @@ function compile(t) {
 		//функции возвращают значение в первый регистр, переносим в нужный нам
 		if (func.type != 'void') {
 			if (registerCount != 1) {
+				typeOnStack[registerCount] = func.type;
 				asm.push(' MOV R' + registerCount + ',R1');
 			}
 		}
@@ -690,12 +759,14 @@ function compile(t) {
 	}
 
 	function initTypes() {
-		typeTable.set('void',{name: 'void', length: 0, members: []});
+		typeTable.set('void',{name: 'void', length: 1, members: []});
 		typeTable.set('*void',{name: '*void', length: 1, members: []});
 		typeTable.set('int',{name: 'int', length: 1, members: []});
 		typeTable.set('*int',{name: '*int', length: 1, members: []});
 		typeTable.set('char',{name: 'char', length: 1, members: []});
 		typeTable.set('*char',{name: '*char', length: 1, members: []});
+		typeTable.set('fixed',{name: 'fixed', length: 1, members: []});
+		typeTable.set('*fixed',{name: '*fixed', length: 1, members: []});
 		var actormembers = [
 		{name: "x", type: 'actorval', length: 1, index: 0},
 		{name: "y", type: 'actorval', length: 1, index: 1},
@@ -725,8 +796,8 @@ function compile(t) {
 			return;
 		}
 		if (isIntoFunction) {
-			if (type == 'actor') {
-				putError(lineCount, 9, 'actor');
+			if (type == 'actor' || typedef.length != 1) {
+				putError(lineCount, 9, type);
 			} else {
 				localVarTable.push(type);
 				localVarTable.push(thisToken);
@@ -805,6 +876,7 @@ function compile(t) {
 			//загрузка ячейки массива
 			if (thisToken != '=') {
 				previousToken();
+				typeCastToFirst(registerCount - 1, 'int');
 				if (type == 'char' || type == '*char') {
 					if(type == '*char' && !point){
 						asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
@@ -814,14 +886,13 @@ function compile(t) {
 						//info("" + lineCount + " работа с локальными массивами не поддерживается ");
 				} else {
 					if(type == '*int' && !point){
-						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
-						//asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 						asm.push(' LDIAL R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 						asm.push(' LDIAL R' + (registerCount - 1) + ',(R' + (registerCount + 1) + '+R' + (registerCount - 1) + ')');
 					} else
 						putError(lineCount, 9, '');
 						//info("" + lineCount + " работа с локальными массивами не поддерживается ");
 				}
+				typeOnStack[registerCount - 1] = type;
 			}
 			//сохранение ячейки массива
 			else {
@@ -832,6 +903,8 @@ function compile(t) {
 				if (getRangOperation(thisToken) > 0)
 					execut();
 				registerCount--;
+				typeCastToFirst(registerCount - 1, 'int');
+				typeCastToFirst(registerCount, type);
 				if (type == 'char' || type == '*char') {
 					if(type == '*char' && !point){
 						asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
@@ -861,6 +934,7 @@ function compile(t) {
 				asm.push(' LDC R' + registerCount + ',(' + l + '+R0) ;' + token);
 			else
 				asm.push(' LDI R' + registerCount + ',(' + l + '+R0) ;' + token);
+			typeOnStack[registerCount] = type;
 			registerCount++;
 		}
 		//присвоить значение переменной
@@ -876,26 +950,39 @@ function compile(t) {
 			registerCount--;
 			//---------
 			if(op == '+='){
+				typeCastToFirst(registerCount, type);
 				asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 				asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
 			}
 			else if(op == '-='){
+				typeCastToFirst(registerCount, type);
 				asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 				asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
 				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 			}
 			else if(op == '*='){
+				// special if fixed
 				asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
 				asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
+				if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && ((type == 'fixed') || (type == 'actorval'))) {
+   	                             asm.push(' LDRES '+FIXED_POINT_Q+',R'+registerCount);
+                                }
 			}
 			else if(op == '/='){
 				asm.push(' LDI R' + (registerCount + 1) + ',(' + l + '+R0) ;' + token);
-				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
-				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+				// special if fixed
+				if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && (type == 'fixed') || (type == 'actorval')) {
+					asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount + 1)+' \n DIVRES 0,R'+registerCount);
+				} else {
+					if (type != 'fixed') typeCastToFirst(registerCount, type);
+						asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
+						asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+				}
 			}
 			else
 				previousToken();
 			//---------
+			typeCastToFirst(registerCount, type);
 			if (type == 'char')
 				asm.push(' STC (' + l + '+R0),R' + registerCount + ' ;' + token);
 			else
@@ -1107,11 +1194,16 @@ function compile(t) {
 	function isNumber(t) {
 		return !isNaN(Number(t)); //  && isFinite(t);
 	}
+
+	function isFloat(t) {
+		return (isNumber(t) && (t.indexOf('.') != -1));
+	}
+
 	// number parser, with fraction to fixed point conversion
 	function parseNumber(t) {
 		if (t.indexOf('.') != -1) {
 		// contains . -> fraction
-			return Math.trunc(parseFloat(t)*FP_SCALE);
+			return Math.round(parseFloat(t)*(1 << FIXED_POINT_Q));
 		}
 		return Number(t); // parseInt(t);
 	}
@@ -1179,6 +1271,7 @@ function compile(t) {
 			}
 			//загрузка ячейки массива
 			if (thisToken != '=' && thisToken != '+=' && thisToken != '-=' && thisToken != '*=' && thisToken != '/=') {
+				typeCastToFirst(registerCount - 1, 'int');
 				previousToken();
 				if (v.type == 'char' || v.type == '*char') {
 					if(v.type == '*char' && !point){
@@ -1206,6 +1299,7 @@ function compile(t) {
 						asm.push(' LDIAL R' + (registerCount - 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
 					}
 				}
+				typeOnStack[registerCount - 1] = v.type;
 			}
 			//сохранение ячейки массива
 			else {
@@ -1217,11 +1311,13 @@ function compile(t) {
 				if (getRangOperation(thisToken) > 0)
 					execut();
 				registerCount--;
+				typeCastToFirst(registerCount - 1, 'int');
 				if (v.type == 'char' || v.type == '*char') {
 					if(v.type == '*char' && !point){
 						asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name +')');
 						asm.push(' STC (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
 					} else{
+						typeCastToFirst(registerCount, v.type);
 						if(op == '+='){
 							asm.push(' LDC R' + (registerCount + 1) + ',(_' + v.name + '+R' + (registerCount - 1) + ')');
 							asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
@@ -1244,39 +1340,43 @@ function compile(t) {
 					}
 				} else {
 					if(v.type.startsWith('*') && !point){
-						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						asm.push(' LDI R' + (registerCount + 1) + ',(_' + v.name +')');
 						if (vindex !== '') asm.push(' INC R' + (registerCount + 1) + ','+vindex.substring(1));
 						asm.push(' STIAL (R' + (registerCount + 1) + '+R' + (registerCount - 1) + '),R' + registerCount);
 					} else{
-						//asm.push(' LDC R15,2 \n MUL R' + (registerCount - 1) + ',R15');
 						if (atype.length > 1) {
 							asm.push(' LDC R15,'+atype.length);
 							asm.push(' MUL R' + (registerCount - 1) + ',R15');
-						} /*
-						if (vindex > 15) {
-							if (vindex != atype.length) asm.push(' LDC R15,'+vindex);
-							asm.push(' ADD R' + (registerCount - 1) + ',R15');
-						} else if (vindex > 0) {
-							asm.push(' INC R' + (registerCount - 1) + ','+vindex);
-						} */
+						} 
 						if (op != '=') {
 							asm.push(' LDIAL R' + (registerCount + 1) + ',(_' + v.name + vindex + '+R' + (registerCount - 1) + ')');
 							if(op == '+='){
+								typeCastToFirst(registerCount, v.type);
 								asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
 							}
 							else if(op == '-='){
+								typeCastToFirst(registerCount, v.type);
 								asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
 								asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 							}
 							else if(op == '*='){
 								asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
+								if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && ((v.type == 'fixed') || (v.type == 'actorval'))) {
+                                        				asm.push(' LDRES '+FIXED_POINT_Q+',R'+registerCount);
+								}
+								if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
 							}
 							else if(op == '/='){
-								asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
-								asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+				                                if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && (v.type == 'fixed') || (v.type == 'actorval')) {
+				                                        asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount + 1)+' \n DIVRES 0,R'+registerCount);
+                                				} else {
+                                        				if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
+                                        				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
+                                        				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+                                				}
 							}
 						}
+						typeCastToFirst(registerCount, v.type);
 						asm.push(' STIAL (_' + v.name + vindex + '+R' + (registerCount - 1) + '),R' + registerCount);
 					}
 				}
@@ -1303,6 +1403,7 @@ function compile(t) {
 			} else {
 				asm.push(' LDI R' + registerCount + ',(_' + vlabel + vindex + ')');
 			}
+			typeOnStack[registerCount] = v.type;
 			registerCount++;
 		}
 		//присваивание значения переменной
@@ -1311,6 +1412,25 @@ function compile(t) {
 	}
 	//обработка возврата из функции
 	function returnToken() {
+		if (!isIntoFunction) {
+			putError(lineCount, 20, 'return outside function not allowed!');
+			return;
+		}
+		getToken();
+		if (thisToken == ';') {
+			if (thisFunction[1] != 'void') putError(lineCount, 12, 'return value expected');
+			asm.push(' RET ');
+			return;
+		} else if (thisFunction[1] == 'void') {
+			putError(lineCount, 8, thisFunction[0]);
+			asm.push(' RET ');
+			return;
+		}
+		if (thisToken != '(') {
+			putError(lineCount, 20, 'return of value requires braces');
+			asm.push(' RET ');
+			return;
+		}
 		registerCount = 2;
 		while (thisToken != ';') {
 			getToken();
@@ -1319,6 +1439,7 @@ function compile(t) {
 			execut();
 		}
 		registerCount--;
+		typeCastToFirst(registerCount,thisFunction[1]);
 		asm.push(' MOV R1,R' + registerCount);
 		registerCount--;
 		if (registerCount > 1) {
@@ -1354,7 +1475,7 @@ function compile(t) {
                         if (vnames.length > 1) {
                                 vlabel = vnames[0];
                         }
-	
+			// typeOnStack[registerCount + 1] = v.type;
 			if (op != '=') {
 				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
 				if(v.type == '*int' && point){
@@ -1367,20 +1488,36 @@ function compile(t) {
 			}
 			
 			if(op == '+='){
+				typeCastToFirst(registerCount, v.type);
 				asm.push(' ADD R' + registerCount + ',R' + (registerCount + 1));
 			}
 			else if(op == '-='){
+				typeCastToFirst(registerCount, v.type);
 				asm.push(' SUB R' + (registerCount + 1) + ',R' + registerCount);
 				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 			}
 			else if(op == '*='){
 				asm.push(' MUL R' + registerCount + ',R' + (registerCount + 1));
+				// if both are fixed then use special mul
+				if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') &&
+					((v.type == 'fixed') || (v.type == 'actorval'))) {
+                                        	asm.push(' LDRES '+FIXED_POINT_Q+',R'+registerCount);
+				}
+				if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
 			}
 			else if(op == '/='){
-				asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
-				asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+				// if divider is fixed then use special div
+                        	if ((typeOnStack[registerCount] == 'fixed' || typeOnStack[registerCount] == 'actorval') && 
+					(v.type == 'fixed') || (v.type == 'actorval')) {
+                                	asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount + 1)+' \n DIVRES 0,R'+registerCount);
+				} else {
+					if (v.type != 'fixed') typeCastToFirst(registerCount, v.type);
+                                	asm.push(' DIV R' + (registerCount + 1) + ',R' + registerCount);
+					asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
+				}
 			}
 			if (v.type == '*int' && point) {
+				typeCastToFirst(registerCount, 'int');
 				if (op == '=') {
 					asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
 					asm.push(' STI (R' + (registerCount + 1) + '),R' + registerCount);
@@ -1392,6 +1529,7 @@ function compile(t) {
 				asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + ')');
                                 asm.push(' ACTSET R' + (registerCount + 1) + ',R15,R' + registerCount);
 			} else {
+				typeCastToFirst(registerCount, v.type);
 				asm.push(' STI (_' + vlabel + vindex + '),R' + registerCount);
 			}
 			previousToken();
@@ -1471,6 +1609,7 @@ function compile(t) {
 			if (getRangOperation(thisToken) > 4)
 				execut();
 			registerCount--;
+			typeCast(registerCount - 1, typeOnStack[registerCount - 1], registerCount, typeOnStack[registerCount]);
 			if (operation == '+')
 				asm.push(' ADD R' + (registerCount - 1) + ',R' + registerCount);
 			else if (operation == '-')
@@ -1491,12 +1630,29 @@ function compile(t) {
 		if (getRangOperation(thisToken) > 5)
 			execut();
 		registerCount--;
-		if (operation == '*')
+
+		if (operation == '*') {
 			asm.push(' MUL R' + (registerCount - 1) + ',R' + registerCount);
-		else if (operation == '/')
-			asm.push(' DIV R' + (registerCount - 1) + ',R' + registerCount);
-		else if (operation == '%')
+			if (typeOnStack[registerCount - 1] == 'fixed') {
+				if ((typeOnStack[registerCount] == 'fixed') || (typeOnStack[registerCount] == 'actorval'))
+					asm.push(' LDRES '+FIXED_POINT_Q+',R'+(registerCount -1)); 
+				// else if ((typeOnStack[registerCount] != 'int') && (typeOnStack[registerCount] != 'char'))
+				// 	putError(lineCount, 25,'multiplying fixed with '+typeOnStack[registerCount]);
+			} //else if (typeOnStack[registerCount] ==  'fixed') {
+			//	putError(lineCount, 25,'multiplying '+typeOnStack[registerCount-1]+' with fixed');
+			// }
+			if (typeOnStack[registerCount] == 'fixed') typeOnStack[registerCount - 1] = 'fixed'; 
+		} else if (operation == '/') {
+			if (typeOnStack[registerCount] == 'fixed') typeCastToFirst(registerCount - 1, 'fixed');
+			if ((typeOnStack[registerCount - 1] == 'fixed') && (typeOnStack[registerCount] == 'fixed'))
+				asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount - 1)+' \n MOV R'+(registerCount -1)+',R'+registerCount+'\n DIVRES 0,R'+(registerCount - 1));
+			else 
+				asm.push(' DIV R' + (registerCount - 1) + ',R' + registerCount);
+		} else if (operation == '%') {
+			typeCastToFirst((registerCount - 1), 'int');
+			typeCastToFirst(registerCount, 'int');
 			asm.push(' DIV R' + (registerCount - 1) + ',R' + registerCount + ' \n MOV R' + (registerCount - 1) + ',R' + registerCount);
+		}
 		if (!(thisToken == ',' || thisToken == ')' || thisToken == ';' || thisToken == '?'))
 			execut();
 	}
@@ -1549,13 +1705,17 @@ function compile(t) {
 		registerCount--;
 
 		if (operation == '>=') {
+			typeCast(registerCount - 1, typeOnStack[registerCount - 1], registerCount, typeOnStack[registerCount]);
 			asm.push(' CMP R' + registerCount + ',R' + (registerCount - 1));
 			asm.push(' LDF R' + (registerCount - 1) + ',4');
 		} else if (operation == '>>') {
+			typeCastToFirst(registerCount, 'int');
 			asm.push(' SHR R' + (registerCount - 1) + ',R' + registerCount);
 		} else if (operation == '<<') {
+			typeCastToFirst(registerCount, 'int');
 			asm.push(' SHL R' + (registerCount - 1) + ',R' + registerCount);
 		} else {
+			typeCast(registerCount - 1, typeOnStack[registerCount - 1], registerCount, typeOnStack[registerCount]);
 			asm.push(' CMP R' + (registerCount - 1) + ',R' + registerCount);
 			if (operation == '<=') 
 				asm.push(' LDF R' + (registerCount - 1) + ',4');
@@ -1901,6 +2061,7 @@ function compile(t) {
 	//обработка объявления типа, предполагаем что за ним следует объявление переменной или функции
 	function typeToken() {
 		var type = thisToken;
+		var typedef = typeTable.get(type);
 		var isInline = false;
 		var isVolatile = false;
 		if(lastToken == '*')
@@ -1908,6 +2069,11 @@ function compile(t) {
 		else if (lastToken == 'volatile') isVolatile = true; 
 		else if (lastToken == 'inline') isInline = 'inline'; 
 		getToken();
+		if (thisToken == '(') {
+			skipBracket();
+			typeCastToFirst(registerCount-1, type);
+			return;
+		}
 		removeNewLine();
 		if (thisToken == '*' || thisToken == '&'){
 			if(thisToken == '*')
@@ -1925,6 +2091,7 @@ function compile(t) {
 		if (thisToken == '(') {
 			previousToken();
 			if (isVolatile) putError(lineCount, 17, 'functions cannot be volatile');
+			if (typedef.length > 1) putError(lineCount, 17, 'functions can only return basic types');
 			addFunction(type,isInline);
 		} else if (thisToken == '[') {
 			if (isVolatile || isInline) putError(lineCount, 17, 'arrays cannot be inline or volatile');
@@ -2074,12 +2241,20 @@ function compile(t) {
 		} else if (isFunction(thisToken)) {
 			callFunction(thisToken);
 		} else if (isNumber(thisToken)) {
-			thisToken = '' + parseNumber(thisToken);
-			//байт код для добавления восьмибитного числа будет короче на два байта, по возможности добавляем его
-			if ((thisToken * 1) < 255 && (thisToken * 1) >= 0)
-				asm.push(' LDC R' + registerCount + ',' + thisToken);
-			else
-				asm.push(' LDI R' + registerCount + ',' + thisToken);
+                        if (isFloat(thisToken)) {
+                                thisToken = '' + parseNumber(thisToken);
+                                asm.push(' LDI R' + registerCount + ',' + thisToken);
+                                typeOnStack[registerCount] = 'fixed';
+                        } else {
+                                thisToken = '' + parseNumber(thisToken);
+                                if ((thisToken * 1) < 255 && (thisToken * 1) >= 0) {
+                                        asm.push(' LDC R' + registerCount + ',' + thisToken);
+                                        typeOnStack[registerCount] = 'char';
+                                } else {
+                                        asm.push(' LDI R' + registerCount + ',' + thisToken);
+                                        typeOnStack[registerCount] = 'int';
+                                }
+                        }
 			registerCount++;
 		} else if (getRangOperation(thisToken) > 0) {
 			//в этих условиях скорее всего работа с указателями, но это не всегда так, нужно улучшить
@@ -2183,7 +2358,7 @@ function compile(t) {
 					// match number and change CMP to CMP int
 					var opregs = asm[pi].match(/R\d+/);
 					var val = asm[pi].match(/,\-?\d+/);
-					if (asm[ni].match(/LDF R\d+,4/) == null && val && opregs && asm[i].match(',' + opregs[0])) {
+					if (!asm[ni].startsWith(' DIVRES') && asm[ni].match(/LDF R\d+,4/) == null && val && opregs && asm[i].match(',' + opregs[0])) {
 					  asm[pi] = ';O1 ' + asm[pi];
 					  pi--;
 					  asm[i] = asm[i].replace(','+opregs[0], val[0]);
@@ -2255,6 +2430,8 @@ function compile(t) {
 	console.time("compile");
 	initTypes();
 	registerFunction('setstack', 'void', ['int', 'a'], 1, 'MOV R0,R%1', 'inline', 0);
+	registerFunction('setdrwaddr', 'void', ['int', 'a'], 1, 'DRWADR R%1', 'inline', 0);
+	registerFunction('rstdrwaddr', 'void', [], 1, 'RSTDAD', 'inline', 0);
 	registerFunction('memset', 'void', ['int', 'to', 'int', 'val', 'int', 'num'], 1, 'MEMSET R0', 'builtin', 0);
 	registerFunction('memcpy', 'void', ['int', 'to', 'int', 'from', 'int', 'num'], 1, 'MEMCPY R0', 'builtin', 0);
 	registerFunction('peek', 'int', ['int', 'adr'], 1, 'LDC R%1,(R%1)', 'inline', 0);
@@ -2266,16 +2443,16 @@ function compile(t) {
 	registerFunction('cbmapx', 'int', ['int', 'e'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
 	registerFunction('cbmapy', 'int', ['int', 'e'], 1, 'LDC R15,8 \n SHR R%1,R15', 'inline', 0);
 	registerFunction('cbactor', 'int', ['int', 'n'], 1, 'LDC R15,31 \n AND R%1,R15', 'inline', 0);
-	registerFunction('i2f', 'int', ['int', 'i'], 1, 'MULRES 7,R%1', 'inline', 0);
-	registerFunction('f2i', 'int', ['int', 'f'], 1, 'LDC R15,128 \n DIV R%1,R15', 'inline', 0);
-	registerFunction('flr', 'int', ['int', 'f'], 1, 'LDI R15,-128 \n AND R%1,R15', 'inline', 0);
-	registerFunction('ceil', 'int', ['int', 'f'], 1, 'LDI R15,127 \n AND R15,R%1 \n LDF R15,5 \n MULRES 7,R15 \n PUSH R15 \n LDI R15,-128 \n AND R%1,R15 \n POP R15 \n ADD R%1,R15', 'inline', 0);
-	registerFunction('frac', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15', 'inline', 0);
-	registerFunction('frac10k', 'int', ['int', 'f'], 1, 'LDC R15,127 \n AND R%1,R15 \n LDI R15,10000 \n MUL R%1,R15 \n LDRES 7,R%1', 'inline', 0);
-	registerFunction('fmf', 'int', ['int', 'f', 'int', 'g'], 1, 'MUL R%2,R%1 \n LDRES 7,R%2', 'inline', 0);
-	registerFunction('fdf', 'int', ['int', 'f', 'int', 'd'], 1, 'MULRES 7,R%2 \n DIVRES 0,R%1 \n MOV R%2,R%1', 'inline', 0);
+	registerFunction('i2f', 'fixed', ['int', 'i'], 1, 'MULRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
+	registerFunction('f2i', 'int', ['fixed', 'f'], 1, 'CMP R%1,0 \n DIVRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
+	registerFunction('flr', 'fixed', ['fixed', 'f'], 1, 'LDI R15,-'+(1 << FIXED_POINT_Q)+' \n AND R%1,R15', 'inline', 0);
+	registerFunction('ceil', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R15,R%1 \n LDF R15,5 \n MULRES '+FIXED_POINT_Q+',R15 \n PUSH R15 \n LDI R15,-'+(1 << FIXED_POINT_Q)+' \n AND R%1,R15 \n POP R15 \n ADD R%1,R15', 'inline', 0);
+	registerFunction('frac', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R%1,R15', 'inline', 0);
+	registerFunction('frac10k', 'int', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R%1,R15 \n LDI R15,10000 \n MUL R%1,R15 \n LDRES '+FIXED_POINT_Q+',R%1', 'inline', 0);
+	registerFunction('fmf', 'fixed', ['fixed', 'f', 'fixed', 'g'], 1, 'MUL R%2,R%1 \n LDRES '+FIXED_POINT_Q+',R%2', 'inline', 0);
+	registerFunction('fdf', 'fixed', ['fixed', 'f', 'fixed', 'd'], 1, 'MULRES '+FIXED_POINT_Q+',R%2 \n DIVRES 0,R%1 \n MOV R%2,R%1', 'inline', 0);
 	registerFunction('intcoords', 'void', [], 1, 'LDC R15,0 \n ESPICO 1,R15', 'inline', 0);
-	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,7 \n ESPICO 1,R15', 'inline', 0);
+	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,'+FIXED_POINT_Q+' \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('coordshift', 'void', ['int', 's'], 1, 'ESPICO 1,R%1', 'inline', 0);
 	registerFunction('flip', 'void', [], 1, 'FLIP', 'inline', 0);
 	registerFunction('rnd', 'int', ['int', 'i'], 1, 'RAND R%1', 'inline', 0);
@@ -2285,8 +2462,9 @@ function compile(t) {
 	registerFunction('abs', 'int', ['int', 'n'], 1, 'ABS R%1', 'inline', 0);
 	registerFunction('atan2', 'int', ['int', 'y', 'int', 'x'], 1, 'ATAN2 R%2,R%1', 'inline', 0);
 	registerFunction('printc', 'char', ['char', 'c'], 1, 'PUTC R%1', 'inline', 0);
-	registerFunction('print', 'int', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
-	registerFunction('printn', 'int', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
+	registerFunction('print', 'void', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
+	registerFunction('printn', 'void', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
+	registerFunction('printfp', 'void', ['int', 'f'], 1, 'CMP R%1,0 \n PUTRES '+FIXED_POINT_Q, 'inline', 0);
 	registerFunction('tmrget', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
 	registerFunction('tmrset', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
 	registerFunction('cls', 'void', [], 1, 'CLS', 'inline', 0);
@@ -2321,7 +2499,8 @@ function compile(t) {
 	registerFunction('aget', 'int', ['int', 'n', 'int', 'type'], 1, 'ACTGET R%2,R%1', 'inline', 0);
 	registerFunction('aset', 'void', ['int', 'n', 'int', 'type', 'int', 'value'], 1, 'ACTSET R%3,R%2,R%1', 'inline', 0);
 	registerFunction('arst', 'void', ['int', 'n'], 1, 'LDI R15,-1 \n ACTSET R%1,R15,R15', 'inline', 0);
-	registerFunction('zoom', 'void', ['int', 's'], 1, 'ISIZE R%1', 'inline', 0);
+	registerFunction('flipxy', 'void', ['int', 'fxy'], 1, 'IMOPTS R%1', 'inline', 0);
+	registerFunction('zoom', 'void', ['int', 's'], 1, 'IMOPTS R%1', 'inline', 0);
 	registerFunction('cursor', 'void', ['int', 'x', 'int', 'y'], 1, 'SETX R%2 \n SETY R%1', 'inline', 0);
 	registerFunction('camera', 'void', ['int', 'x', 'int', 'y'], 1, 'ESPICO 2,R%2 \n ESPICO 3,R%1', 'inline', 0);
 	registerFunction('clip', 'void', ['int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'CLIP R0', 'builtin', 0);
@@ -2350,8 +2529,9 @@ function compile(t) {
 	dataAsm.push(' RET \nnext_printf_c_end:\n INC R2 \n LDC R3,(R2)\n JNZ next_printf_c \n RET\nprintf_get:');
 	dataAsm.push(' INC R2 \n LDC R3,(R2) \n CMP R3,37 ;%\n JZ printf_percent\n DEC R1,2 \n LDI R4,(R1)');
 	dataAsm.push(' CMP R3,100 ;d\n JZ printf_d \n CMP R3,105 ;i\n JZ printf_d \n CMP R3,115 ;s\n JZ printf_s \n CMP R3,99 ;c\n JZ printf_c');
-	dataAsm.push(' JMP next_printf_c \nprintf_percent:\n PUTC R3 \n JMP next_printf_c_end \nprintf_d: \n PUTN R4');
+	dataAsm.push(' CMP R3,102 ;f\n JZ printf_f \n JMP next_printf_c \nprintf_percent:\n PUTC R3 \n JMP next_printf_c_end \nprintf_d: \n PUTN R4');
 	dataAsm.push(' JMP next_printf_c_end\nprintf_c: \n PUTC R4\n JMP next_printf_c_end\nprintf_s:\n PUTS R4 \n JMP next_printf_c_end');
+	dataAsm.push(' printf_f:\n CMP R4,0 \n PUTRES '+FIXED_POINT_Q+' \n JMP next_printf_c_end');
 	registerFunction('printf', 'int', ['*char', 's', '...'], 1, dataAsm, false, 0);
 	dataAsm = [];
 	dataAsm.push('_free:\n LDI R1,(2 + R0)\n DEC R1,2\n LDI R3,32768\n LDI R2,(R1)\n SUB R2,R3\n LDI R4,(R1+R2)\n CMP R4,0\n JZ end_free_0');

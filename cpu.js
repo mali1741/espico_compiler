@@ -1,7 +1,7 @@
 "use strict";
 
 var timers = [];
-const PRG_SIZE = 16*1024;	
+const PRG_SIZE = 16*1024;
 const SPRITE_COUNT = 128;
 const SPRITE_WIDTH = 8;
 const SPRITE_HEIGHT = 8;
@@ -19,20 +19,27 @@ const SPRITE_MEMMAP = PRG_SIZE;
 const SPRITE_MAP_SIZE = 4096;
 const SPRITE_FLAGS_MEMMAP = 32*1024;	
 const SPRITE_FLAGS_SIZE = 256;
+const LINE_REDRAW_MEMMAP = SPRITE_FLAGS_MEMMAP+SPRITE_FLAGS_SIZE;
+const LINE_REDRAW_SIZE = 128;
 const TILEMAP_MEMMAP = SPRITE_MEMMAP+SPRITE_MAP_SIZE;
 const TILEMAP_SIZE = 4096;
 const SCREEN_MEMMAP = TILEMAP_MEMMAP+TILEMAP_SIZE;
+const SCREEN_WIDTH = 128;
+const SCREEN_WIDTH_BYTES = 64;
+const SCREEN_HEIGHT = 128;
 const PARTICLE_COUNT = 32;
 const PARTICLE_SHRINK = 0x10;
 const PARTICLE_GRAV =   0x20;
 const PARTICLE_FRIC =   0x40;
 const PARTICLE_STAR =   0x80;
 
+var drwpalette = [];
+
 function Cpu(){
 	var mem = new Uint8Array(0x10000);			// 65536 bytes RAM
 	var reg = [];			//16 registers
 	var shadow_reg = [];			//16 shadow registers for interrupt handling
-        var espico = {drawing: 0, palt: 1, coordshift: 0, clipx0: 0, clipy0: 0, clipx1: 128, clipy1: 128, camx: 0, camy: 0};
+        var espico = {drawing: 0, palt: 1, coordshift: 0, clipx0: 0, clipy0: 0, clipx1: 128, clipy1: 128, camx: 0, camy: 0, flipx: 0, flipy: 0};
 	var regx = 0;			//неявный регистр, указывает на Х позицию символа в текстовом режиме
 	var nlregx = 0;			//неявный регистр, указывает на Х позицию символа в текстовом режиме
 	var regy = 0;			//Y позиция символа
@@ -54,14 +61,48 @@ function Cpu(){
 	var lastJKey = 0;
 	var keyPosition = 0;
 	var keyArray = "qwertyuiop[]{}()=789\basdfghjkl:;\"/#$@0456\nzxcvbnm<>?.,!%+*-123 ";
+	const redrawAddress = SCREEN_MEMMAP;
+	var drawAddress = SCREEN_MEMMAP;
+	var line_draw = LINE_REDRAW_MEMMAP;
+
+	function setDrawAddr(addr) {
+  		drawAddress = (addr & 0x7fff);
+  		if (drawAddress == redrawAddress) {
+			line_draw = LINE_REDRAW_MEMMAP;
+		} else {
+			line_draw = LINE_REDRAW_MEMMAP+LINE_REDRAW_SIZE;
+		}
+	}
+
+	function resetDrawAddr() {
+		drawAddress = redrawAddress;
+		line_draw = LINE_REDRAW_MEMMAP;
+	}
+
 	
 	function SPRITE_ADDR(n){
 		return (((n & 0xf0) << 5) + ((n & 0x0f) << 2));
 	}
 
-        function SPRITE_PIX(x,y){
+        function MEM_PIX(x,y){
                 return (((y) << 6) + (x));
         }
+
+	function GET_PIX_LEFT(p) {
+		return ((p & 0xf0) >> 4);
+	}
+
+	function GET_PIX_RIGHT(p) {
+		return (p & 0x0f);
+	}
+
+	function SET_PIX_LEFT(p, c) {
+		return ((p & 0x0f) | ((c & 0x0f) << 4));
+	}
+
+	function SET_PIX_RIGHT(p, c) {
+		return ((p & 0xf0) | (c & 0x0f));
+	}
 
         function TILEMAP_ADDR(x,y){
                 return (((y & 31) << 7) + (x & 127));
@@ -71,8 +112,12 @@ function Cpu(){
                 return (espico.palt & (1 << col));
         }
 
+        function line_redraw(y){
+                return mem[LINE_REDRAW+(y & 127)];
+        }
+
         function sprite_flags(spr){
-                return (readMem(SPRITE_FLAGS_MEMMAP+(spr & 255)));
+                return (readMem(SPRITE_FLAGS_MEMMAP+(spr & 511)));
         }
 
 	function resetActor(n) {
@@ -112,6 +157,8 @@ function Cpu(){
 		espico.clipy1 = 128;
 		espico.camx = 0;
 		espico.camy = 0;
+		espico.flipx = 0;
+		espico.flipy = 0;
 		bgcolor = 0;
 		color = 7;
 		interrupt = 0;
@@ -125,6 +172,9 @@ function Cpu(){
 			charArray[i] = '';
 		for(var i = 0; i < 8; i++)
 			timers[i] = 0;
+		for(var i = 0; i < 16; i++)
+			drwpalette[i] = i;
+		clearScreen(0);
 	}
 	
 	function load(arr){
@@ -335,15 +385,69 @@ function Cpu(){
 	  return A;
 	}
 
+	function getRedrawPix(x, y) {
+		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+			if (x & 1) {
+				return GET_PIX_RIGHT(mem[redrawAddress+MEM_PIX(x >> 1, y)]);
+			} else {
+				return GET_PIX_LEFT(mem[redrawAddress+MEM_PIX(x >> 1, y)]);
+			}
+		}
+		return 0;
+	}
+
+	function getPix(x, y) {
+		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+			if (x & 1) {
+				return GET_PIX_RIGHT(mem[drawAddress+MEM_PIX(x >> 1, y)]);
+			} else {
+				return GET_PIX_LEFT(mem[drawAddress+MEM_PIX(x >> 1, y)]);
+			}
+		}
+		return 0;
+	}
+		
+
 	function setPix(x, y, col){
 		x -= espico.camx;
 		y -= espico.camy;
-		if (x >= espico.clipx0 && x < espico.clipx1 && y >= espico.clipy0 && y < espico.clipy1)
-		  display.plot(col, x, y);
+		if (x >= espico.clipx0 && x < espico.clipx1 && y >= espico.clipy0 && y < espico.clipy1) {
+		  if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+		    var x2 = x >> 1;
+		    var px = mem[drawAddress+MEM_PIX(x2,y)];
+		    var b = px;
+		    if (x & 1) {
+			px = SET_PIX_RIGHT(px, col);
+		    } else {
+			px = SET_PIX_LEFT(px, col);
+		    }
+		    if (b != px) {
+			mem[drawAddress+MEM_PIX(x2,y)] = px;
+			mem[line_draw+y] |= (1 << (x >> 4));
+		    }
+		  }
+		}
 	}
-	
+
+	function clearScreen(color) {
+		var twocolor = ((drwpalette[color] << 4) | (drwpalette[color]));
+		for (var i = 0; i < SCREEN_HEIGHT; i++) {
+			for (var x = 0; x < SCREEN_WIDTH_BYTES; x++) {
+				var px = mem[drawAddress+MEM_PIX(x,i)];
+				if (px != twocolor) {
+					mem[drawAddress+MEM_PIX(x,i)] = twocolor; 
+      					mem[line_draw+i] = 255;
+				}
+			}
+		}
+  		espico.nlregx = 0;
+  		espico.regx = 0;
+  		espico.regy = 0;
+  		setClip(0,0,128,128);
+	}
+
 	function drawRect(x0, y0, x1, y1){
-	  var fgcolor = color;
+	  var fgcolor = drwpalette[color];
           x0 = fromInt16(x0);
           y0 = fromInt16(y0);
           x1 = fromInt16(x1);
@@ -361,11 +465,11 @@ function Cpu(){
           x1 = fromInt16(x1);
           y1 = fromInt16(y1);
 	  for(var jy = y0; jy <= y1; jy++)
-	    drawFastHLine(x0, x1, jy, bgcolor);
+	    drawFastHLine(x0, x1, jy, drwpalette[bgcolor]);
 	}
 
 	function drawCirc(x0, y0, r){
-	  var fgcolor = color;
+	  var fgcolor = drwpalette[color];
 	  var x  = 0;
 	  var dx = 1;
 	  var dy = r+r;
@@ -415,7 +519,7 @@ function Cpu(){
           x0 = fromInt16(x0);
           y0 = fromInt16(y0);
 	
-	  drawFHLine(x0 - r, y0, dy + 1, bgcolor);
+	  drawFHLine(x0 - r, y0, dy + 1, drwpalette[bgcolor]);
 	
 	  while(x<r){
 	
@@ -430,10 +534,10 @@ function Cpu(){
 	
 	    x++;
 	
-	    drawFHLine(x0 - r, y0 + x, 2 * r + 1, bgcolor);
-	    drawFHLine(x0 - r, y0 - x, 2 * r + 1, bgcolor);
-	    drawFHLine(x0 - x, y0 + r, 2 * x + 1, bgcolor);
-	    drawFHLine(x0 - x, y0 - r, 2 * x + 1, bgcolor);
+	    drawFHLine(x0 - r, y0 + x, 2 * r + 1, drwpalette[bgcolor]);
+	    drawFHLine(x0 - r, y0 - x, 2 * r + 1, drwpalette[bgcolor]);
+	    drawFHLine(x0 - x, y0 + r, 2 * x + 1, drwpalette[bgcolor]);
+	    drawFHLine(x0 - x, y0 - r, 2 * x + 1, drwpalette[bgcolor]);
 	
 	  }
 	}
@@ -854,22 +958,46 @@ function Cpu(){
 	}
 
 	function drawImage(adr, x1, y1, w, h){
-		var add_next_row = 0;
+		var add_next_row = 0, ainc = 1;
 		if (adr >= SPRITE_MEMMAP){
-		    add_next_row = 64 - (w >> 1);
+		  add_next_row = 64 - (w >> 1);
+		}
+		if (espico.flipx != espico.flipy) {
+		  add_next_row += w;
+		}
+		if (espico.flipy) {
+		  add_next_row = -add_next_row;
+		  adr = adr + 64 * (h-1);
+		} 
+		if (espico.flipx) {
+		  adr += (w >> 1) - 1;
+		  ainc = -1;
 		}
 
 		var color;
 		for(var y = 0; y < h; y++){
-			for(var x = 0; x < w; x++){
+			if (espico.flipx) {
+			  for(var x = 0; x < w; x++){
+				color = (readMem(adr) & 0xf);
+				if(IS_TRANSPARENT(color) == 0)
+					setPix(x1 + x, y1 + y, drwpalette[color]);
+				x++;
 				color = (readMem(adr) & 0xf0) >> 4;
 				if(IS_TRANSPARENT(color) == 0)
-					setPix(x1 + x, y1 + y, color);
+					setPix(x1 + x, y1 + y, drwpalette[color]);
+				adr += ainc;
+			  }
+			} else {
+			  for(var x = 0; x < w; x++){
+				color = (readMem(adr) & 0xf0) >> 4;
+				if(IS_TRANSPARENT(color) == 0)
+					setPix(x1 + x, y1 + y, drwpalette[color]);
 				x++;
 				color = (readMem(adr) & 0xf);
 				if(IS_TRANSPARENT(color) == 0)
-					setPix(x1 + x, y1 + y, color);
-				adr++;
+					setPix(x1 + x, y1 + y, drwpalette[color]);
+				adr += ainc;
+			  }
 			}
 			adr += add_next_row;
 		}
@@ -887,36 +1015,66 @@ function Cpu(){
 					adr++;
 				}
 				if(bit & 0x80)
-					setPix(x1 + x, y1 + y, color);
+					setPix(x1 + x, y1 + y, drwpalette[color]);
 				else
-					setPix(x1 + x, y1 + y, bgcolor);
+					setPix(x1 + x, y1 + y, drwpalette[bgcolor]);
 				bit = bit << 1;
 				i++;
 			}
 	}
 
 	function drawImageS(adr, x1, y1, w, h){
-                var add_next_row = 0;
+                var add_next_row = 0, ainc = 1;
                 if (adr >= SPRITE_MEMMAP){
                     add_next_row = 64 - (w >> 1);
                 }
+		if (espico.flipx != espico.flipy) {
+		  add_next_row += (w & 0xfffe);
+		}
+		if (espico.flipy) {
+		  add_next_row = -add_next_row;
+		  adr = adr + (add_next_row + (w >> 1)) * (h-1);
+		} 
+		if (espico.flipx) {
+		  adr += (w >> 1) - 1;
+		  ainc = -1;
+		}
 
 		var color,jx,jy;
 		var s = imageSize;
-		for(var y = 0; y < h; y++){
-			for(var x = 0; x < w; x++){
-				color = (readMem(adr) & 0xf0) >> 4;
-				if(IS_TRANSPARENT(color) == 0)
-					for(jx = 0; jx < s; jx++)
-						for(jy = 0; jy < s; jy++)
-							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
-				x++;
+		var ws = w * s;
+		var hs = h * s;
+		for(var y = 0; y < hs; y+=s){
+			if (espico.flipx) {
+			  for(var x = 0; x < ws; x+=s){
 				color = (readMem(adr) & 0xf);
 				if(IS_TRANSPARENT(color) == 0)
-					for(jx = 0; jx < s; jx++)
-						for(jy = 0; jy < s; jy++)
-							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
-				adr++;
+					for(jy = 0; jy < s; jy++)
+						for(jx = 0; jx < s; jx++)
+							setPix(x1 + x + jx, y1 + y + jy, drwpalette[color]);
+				x += s;
+				color = (readMem(adr) & 0xf0) >> 4;
+				if(IS_TRANSPARENT(color) == 0)
+					for(jy = 0; jy < s; jy++)
+						for(jx = 0; jx < s; jx++)
+							setPix(x1 + x + jx, y1 + y + jy, drwpalette[color]);
+				adr += ainc;
+			  }
+			} else {
+			  for(var x = 0; x < ws; x+=s){
+				color = (readMem(adr) & 0xf0) >> 4;
+				if(IS_TRANSPARENT(color) == 0)
+					for(jy = 0; jy < s; jy++)
+						for(jx = 0; jx < s; jx++)
+							setPix(x1 + x + jx, y1 + y + jy, drwpalette[color]);
+				x += s;
+				color = (readMem(adr) & 0xf);
+				if(IS_TRANSPARENT(color) == 0)
+					for(jy = 0; jy < s; jy++)
+						for(jx = 0; jx < s; jx++)
+							setPix(x1 + x + jx, y1 + y + jy, drwpalette[color]);
+				adr += ainc;
+			  }
 			}
 			adr += add_next_row;
 		}
@@ -936,12 +1094,12 @@ function Cpu(){
 				if(bit & 0x80){
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							setPix(x1 + x * s + jx, y1 + y * s + jy, color);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, drwpalette[color]);
 				}
 				else{
 					for(jx = 0; jx < s; jx++)
 						for(jy = 0; jy < s; jy++)
-							setPix(x1 + x * s + jx, y1 + y * s + jy, bgcolor);
+							setPix(x1 + x * s + jx, y1 + y * s + jy, drwpalette[bgcolor]);
 				}
 				bit = bit << 1;
 				i++;
@@ -986,7 +1144,7 @@ function Cpu(){
 	}
 	
 	function drawLine(x1, y1, x2, y2) {
-		var fgcolor = color;
+		var fgcolor = drwpalette[color];
 		if(x1 == x2){
 			if(y1 > y2)
 				drawFastVLine(x1, y2, y1, fgcolor);
@@ -1020,6 +1178,22 @@ function Cpu(){
 			}
 		}
 	}
+
+        function putchar(chr, x, y, col){
+                var c = chr.charCodeAt(0);
+		col = drwpalette[col];
+                if (c >= 32 && c < (32 + (font.length / FONT_WIDTH))) {
+                        c -= 32;
+                for(var i=0; i<FONT_WIDTH; i++ ) { // Char bitmap = 5 columns
+                        var line = font[c * FONT_WIDTH + i];
+                        for(var j=0; j<FONT_HEIGHT; j++, line >>= 1) {
+                                if(line & 1)
+                                        setPix(x+i, y+j, col);
+                        }
+                }
+                }
+        }
+
 	
 	function prints(adr){
 		var i = 0;
@@ -1030,7 +1204,7 @@ function Cpu(){
 				regy += FONT_HEIGHT;
 				x = nlregx;
 			} else {
-				display.char(c , x, regy, color);
+				putchar(c , x, regy, color);
 				x += FONT_WIDTH+1;
 			}
 			i++;
@@ -1044,7 +1218,7 @@ function Cpu(){
 			regy += FONT_HEIGHT;
 			regx = nlregx;
 		} else {
-			display.char(c , regx, regy, color);
+			putchar(c , regx, regy, color);
 			regx += FONT_WIDTH+1;
 		}
 	}
@@ -1124,7 +1298,7 @@ function Cpu(){
 						//MOV R,R		07 RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						n = reg[reg1] = reg[reg2];
+						reg[reg1] = reg[reg2];
 						break;
 					case 0x08:
 						//LDIAL R,(int+R*2)	08 RR XXXX
@@ -1683,7 +1857,7 @@ function Cpu(){
 				            if(reg[reg2] != 0)
 				              n = ToInt32( n / reg[reg2] );
 				            else
-				              n = 0;//error
+				              n = 0xffffffff; //error, but give max
 				          } else {
 				            n = ToInt32( n / (1 << reg1) );
 				          }
@@ -1696,10 +1870,7 @@ function Cpu(){
 					case 0xD0:
 						//CLS		D000
 					          if (op2 == 0x00) {
-					            // clearScr(espico.bgcolor);
-						    regx = 0; regy = 0; nlregx = 0;
-						    setClip(0,0,128,128);
-						    display.clearScreen(bgcolor);
+						    clearScreen(bgcolor);
 					          } else if ((op2 & 0xf0) == 0x10) {
 					            reg1 = (op2 & 0xf);
 					            var adr = reg[reg1];
@@ -1732,7 +1903,7 @@ function Cpu(){
 								prints(reg[reg1]);
 								break;
 							case 0x20:
-								//PUTN R D12R
+								//PUTN R D12R 
 								reg1 = (op2 & 0xf);
 								var s;
 								if(reg[reg1] < 32768)
@@ -1760,6 +1931,53 @@ function Cpu(){
 								var adr = reg[reg1];
 								setClip(readInt(adr+6), readInt(adr+4), readInt(adr+2), readInt(adr));
 								break;
+            						case 0xA0:
+              							//DRWADR R      D1AR
+              							//RSTDAD        D1A0
+              							reg1 = (op2 & 0xf);
+              							if (reg1 == 0) {
+              								resetDrawAddr();
+              							} else {
+              								setDrawAddr(reg[reg1]);
+              							}
+              							break;
+							case 0xB0:
+								//PUTRES X 			D1BX
+								// const deci = [0,1,2,3,3,3, 3,3,3,3,3, 4,4,5,5,5];
+								const deci = [0,2,3,4,4,4, 4,4,4,4,4, 5,5,6,6,6];
+								reg1 = (op2 & 0xf);
+								var numi = ToInt16(n);
+								var s;
+								if (numi < 32768) {
+									s = (numi / (1 << reg1)).toFixed(deci[reg1]).slice(0,-1);
+								} else {
+									s = '-';
+									s += (ToInt16((~numi)+1) / (1 << reg1)).toFixed(deci[reg1]).slice(0,-1);
+								} /*
+								var numi = ToInt32(n >> reg1);
+								var s;
+								s = n.toString(10) + '=';
+								if(numi < (1 << (15-reg1)))
+									s += numi.toString(10);
+								else
+									s += (numi - (1 << (16-reg1))).toString(10);
+								if(reg1 > 0) {
+									s += '.';
+									var tmul = tens[reg1-1];
+									var numf = ToInt32(((n & (fmul - 1)) * tmul) >> (reg1-1));
+									// round
+									numf = (numf >> 1) + (numf & 1);
+									tmul /= 10;
+									while (tmul > 1 && numf < tmul) {
+										tmul /= 10;
+										s += '0';
+									}
+									s += numf.toString(10);
+								} */
+								for(var i = 0; i < s.length; i++){
+									printc(s[i]);
+								}
+								break;
 						}
 						break;
 					case 0xD2: 
@@ -1767,6 +1985,7 @@ function Cpu(){
 							case 0x00:
 								// GETK R			D20R
 								reg1 = (op2 & 0xf);
+								/*
 								display.viewKeyboard(keyPosition);
 								if(globalJKey == 1 && keyPosition > 21)
 									keyPosition -= 21;
@@ -1784,6 +2003,8 @@ function Cpu(){
 								else
 									pc -= 2;
 								globalKey = 0;
+								*/
+								reg[reg1] = 0;
 								break;
 							case 0x10:
 								// GETJ R			D21R
@@ -1853,9 +2074,11 @@ function Cpu(){
 								reg[reg1] = ToInt16(n);
 								break;
 							case 0x50:
-								// ISIZE			D45R
+								// IMOPTS			D45R
 								reg1 = op2 & 0xf;
-								imageSize = reg[reg1] & 31;
+								if (reg[reg1] & 31) imageSize = reg[reg1] & 31;
+								espico.flipy = ((reg[reg1] & 0x80) ? 1 : 0);
+								espico.flipx = ((reg[reg1] & 0x40) ? 1 : 0);
 								break;
 							case 0x60:
 								// DLINE			D46R
@@ -1980,7 +2203,7 @@ function Cpu(){
 						// GETPIX R,R		D9RR
 						reg1 = (op2 & 0xf0) >> 4;//x
 						reg2 = op2 & 0xf;//y
-						n = display.getPixel(reg[reg1], reg[reg2]);
+						n = getPixel(reg[reg1], reg[reg2]);
 						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDA:
@@ -2192,6 +2415,7 @@ function Cpu(){
 		step:step,
 		debug:debug,
 		readMem:readMem,
+		getRedrawPix:getRedrawPix,
 		setRedraw:setRedraw,
 		getEspicoState:getEspicoState,
 		setEspicoState:setEspicoState,

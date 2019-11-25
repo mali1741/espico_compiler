@@ -443,7 +443,7 @@ var epalette = [
 
 
 var palette = [];
-var drwpalette = [];
+// var drwpalette = [];
 
 function viewMemory(){
 	var s = '     0 1 2 3 4 5 6 7 8 9 A B C D E F';
@@ -509,7 +509,6 @@ function run(){
 //функция вывода на экран
 function Display() {
 	var canvasArray = [];
-	var canvasArray2 = [];
     var ctx;
     var width;
     var height;
@@ -566,7 +565,6 @@ function Display() {
 		ctx.fillRect(0, 0, width+20, height+20);
 		for(var i = 0; i < 20480; i++){
 			canvasArray[i] = 0;
-			canvasArray2[i] = 0;
 		}
 		cpuLostCycle += 2000;
 		ctx.fillStyle = "black";
@@ -578,7 +576,7 @@ function Display() {
 			drwpalette[i] = i;
 		}
     }
-	
+/*	
 	function clearScreen(color){
 		if (color === undefined || color === null)
 			color = 0;
@@ -587,7 +585,7 @@ function Display() {
 			canvasArray[i] = c;
 		}
 	}
-	
+*/	
 	function char(chr, x, y, color){
 		var c = chr.charCodeAt(0);
 		if (c >= 32 && c < (32 + (font.length / FONT_WIDTH))) {
@@ -612,7 +610,7 @@ function Display() {
 		ctx.stroke();
 		isDebug = true;
 	}
-	
+/*	
 	function drawPixel(color, x, y) {
 		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
 			cpuLostCycle += 1;
@@ -633,10 +631,6 @@ function Display() {
 			for(y1 = 0; y1 < s; y1++){
 				drawPixel(c, x + x1, y + y1);
 			}
-	}
-	
-	function getPixel(x, y){
-		return canvasArray[x * 128 + y];
 	}
 	
 	function viewKeyboard(pos){
@@ -668,18 +662,18 @@ function Display() {
 				i++;
 			}
 	}
-	
+*/	
 	function redraw(){
 		var color, x, y;
-		if(isDrawKeyboard){
-			drawKeyboard();
-			isDrawKeyboard = 0;
-		}
-		for(x = 0; x < 128; x++)
-			for(y = 0; y < 128; y++){
-				if(canvasArray[x * 128 + y] != canvasArray2[x * 128 + y] || isDebug || isChangePalette){
-					canvasArray2[x * 128 + y] = canvasArray[x * 128 + y];
-					color = canvasArray[x * 128 + y];
+//		if(isDrawKeyboard){
+//			drawKeyboard();
+//			isDrawKeyboard = 0;
+//		}
+		for(y = 0; y < 128; y++)
+			for(x = 0; x < 128; x++){
+				if(cpu.getRedrawPix(x,y) != canvasArray[y * 128 + x] || isDebug || isChangePalette){
+					canvasArray[y * 128 + x] = cpu.getRedrawPix(x,y);
+					color = canvasArray[y * 128 + x];
 					ctx.fillStyle = palette[color & 0x0f];
 					ctx.fillRect(x * pixelSize, (y + 16) * pixelSize, pixelSize, pixelSize);
 				}
@@ -725,14 +719,13 @@ function Display() {
     return {
       init: init,
       reset: reset,
-	  clearScreen:clearScreen,
-	  char:char,
+	  // clearScreen:clearScreen,
+	  // char:char,
 	  // updatePixel: updatePixel,
-	  drawPixel: drawPixel,
-	  plot:plot,
-	  largeplot:largeplot,
-	  getPixel:getPixel,
-	  viewKeyboard:viewKeyboard,
+	  // drawPixel: drawPixel,
+	  // plot:plot,
+	  // largeplot:largeplot,
+	  // viewKeyboard:viewKeyboard,
 	  redraw:redraw,
 	  changePalette:changePalette,
 	  resetPalette:resetPalette,
@@ -748,7 +741,7 @@ function redraw() {
 		  cpu.setRedraw();
                 }
 		isRedraw = true;
-    }, 33);
+    }, 32);
 }
 
 function savebin(){
