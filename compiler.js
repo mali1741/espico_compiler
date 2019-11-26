@@ -447,7 +447,7 @@ function compile(t) {
                         	asm.push(' MULRES '+FIXED_POINT_Q+',R' + r);
                                 typeOnStack[r] = 'fixed';
                 	} else if (t == 'actorval' || t == 'void') {
-                        	typeOnStack[r] = type;
+                        	typeOnStack[r] = t;
                         } else {
 				// type warning
 				putError(lineCount, 25, "cannot cast R"+r+':'+t+'to fixed');
@@ -629,8 +629,10 @@ function compile(t) {
 				return 'R' + (registerCount - parseNumber(reg));
 			}));
 		registerCount -= func.operands.length / 2;
-		if (func.type != 'void')
+		if (func.type != 'void') {
+			typeOnStack[registerCount] = func.type;
 			registerCount++;
+		}
 		getToken();
 		if (getRangOperation(thisToken) > 0)
 			execut();
@@ -1647,12 +1649,13 @@ function compile(t) {
 		} else if (operation == '/') {
 			if (typeOnStack[registerCount] == 'fixed') typeCastToFirst(registerCount - 1, 'fixed');
 			if ((typeOnStack[registerCount - 1] == 'fixed') && (typeOnStack[registerCount] == 'fixed'))
-				asm.push('MULRES '+FIXED_POINT_Q+',R'+(registerCount - 1)+' \n MOV R'+(registerCount -1)+',R'+registerCount+'\n DIVRES 0,R'+(registerCount - 1));
+				asm.push(' MULRES '+FIXED_POINT_Q+',R'+(registerCount - 1)+' \n MOV R'+(registerCount -1)+',R'+registerCount+'\n DIVRES 0,R'+(registerCount - 1));
 			else 
 				asm.push(' DIV R' + (registerCount - 1) + ',R' + registerCount);
 		} else if (operation == '%') {
-			typeCastToFirst((registerCount - 1), 'int');
-			typeCastToFirst(registerCount, 'int');
+			// typeCastToFirst((registerCount - 1), 'int');
+			typeCast(registerCount - 1, typeOnStack[registerCount - 1], registerCount, typeOnStack[registerCount]);
+			// typeCastToFirst(registerCount, 'int');
 			asm.push(' DIV R' + (registerCount - 1) + ',R' + registerCount + ' \n MOV R' + (registerCount - 1) + ',R' + registerCount);
 		}
 		if (!(thisToken == ',' || thisToken == ')' || thisToken == ';' || thisToken == '?'))
@@ -2450,19 +2453,22 @@ function compile(t) {
 	registerFunction('ceil', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R15,R%1 \n LDF R15,5 \n MULRES '+FIXED_POINT_Q+',R15 \n PUSH R15 \n LDI R15,-'+(1 << FIXED_POINT_Q)+' \n AND R%1,R15 \n POP R15 \n ADD R%1,R15', 'inline', 0);
 	registerFunction('frac', 'fixed', ['fixed', 'f'], 1, 'LDI R15,'+((1 << FIXED_POINT_Q)-1)+' \n AND R%1,R15', 'inline', 0);
 	registerFunction('intcoords', 'void', [], 1, 'LDC R15,0 \n ESPICO 1,R15', 'inline', 0);
-	registerFunction('fixpcoords', 'void', [], 1, 'LDC R15,'+FIXED_POINT_Q+' \n ESPICO 1,R15', 'inline', 0);
+	registerFunction('fcoords', 'void', [], 1, 'LDC R15,'+FIXED_POINT_Q+' \n ESPICO 1,R15', 'inline', 0);
 	registerFunction('coordshift', 'void', ['int', 's'], 1, 'ESPICO 1,R%1', 'inline', 0);
 	registerFunction('flip', 'void', [], 1, 'FLIP', 'inline', 0);
 	registerFunction('rnd', 'int', ['int', 'i'], 1, 'RAND R%1', 'inline', 0);
 	registerFunction('sqrt', 'int', ['int', 'n'], 1, 'SQRT R%1', 'inline', 0);
-	registerFunction('cos', 'int', ['int', 'n'], 1, 'COS R%1', 'inline', 0);
-	registerFunction('sin', 'int', ['int', 'n'], 1, 'SIN R%1', 'inline', 0);
+	registerFunction('intcos', 'int', ['int', 'n'], 1, 'COS R%1', 'inline', 0);
+	registerFunction('intsin', 'int', ['int', 'n'], 1, 'SIN R%1', 'inline', 0);
+	registerFunction('cos', 'fixed', ['int', 'n'], 1, 'COS R%1'+((FIXED_POINT_Q!=7)?((FIXED_POINT_Q>7)?(' \n MULRES '+(FIXED_POINT_Q-7)+',R%1'):('DIVRES '+(7-FIXED_POINT_Q)+',R%1')):''), 'inline', 0);
+	registerFunction('sin', 'fixed', ['int', 'n'], 1, 'SIN R%1'+((FIXED_POINT_Q!=7)?((FIXED_POINT_Q>7)?(' \n MULRES '+(FIXED_POINT_Q-7)+',R%1'):('DIVRES '+(7-FIXED_POINT_Q)+',R%1')):''), 'inline', 0);
 	registerFunction('abs', 'int', ['int', 'n'], 1, 'ABS R%1', 'inline', 0);
+	registerFunction('fabs', 'fixed', ['fixed', 'f'], 1, 'ABS R%1', 'inline', 0);
 	registerFunction('atan2', 'int', ['int', 'y', 'int', 'x'], 1, 'ATAN2 R%2,R%1', 'inline', 0);
 	registerFunction('printc', 'char', ['char', 'c'], 1, 'PUTC R%1', 'inline', 0);
 	registerFunction('print', 'void', ['*char', 'c'], 1, 'PUTS R%1', 'inline', 0);
 	registerFunction('printn', 'void', ['int', 'n'], 1, 'PUTN R%1', 'inline', 0);
-	registerFunction('printfp', 'void', ['fixed', 'f'], 1, 'CMP R%1,0 \n PUTRES '+FIXED_POINT_Q, 'inline', 0);
+	registerFunction('fprintn', 'void', ['fixed', 'f'], 1, 'CMP R%1,0 \n PUTRES '+FIXED_POINT_Q, 'inline', 0);
 	registerFunction('tmrget', 'int', ['int', 'n'], 1, 'GTIMER R%1', 'inline', 0);
 	registerFunction('tmrset', 'void', ['int', 'n', 'int', 'time'], 1, 'STIMER R%2,R%1', 'inline', 0);
 	registerFunction('cls', 'void', [], 1, 'CLS', 'inline', 0);
@@ -2507,7 +2513,7 @@ function compile(t) {
 	registerFunction('circfill', 'void', ['int', 'x', 'int', 'y', 'int', 'r'], 1, 'FCIRC R0', 'builtin', 0);
 	registerFunction('rect', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'DRECT R0', 'builtin', 0);
 	registerFunction('rectfill', 'void', ['int', 'x', 'int', 'y', 'int', 'x1', 'int', 'y1'], 1, 'FRECT R0', 'builtin', 0);
-	registerFunction('aspd', 'void', ['int', 'n', 'int', 'speed', 'int', 'dir'], 1, 'ACTDS R0', 'builtin', 0);
+	registerFunction('aspd', 'void', ['int', 'n', 'void', 'speed', 'int', 'dir'], 1, 'ACTDS R0', 'builtin', 0);
 	registerFunction('dist', 'int', ['int', 'x1', 'int', 'y1', 'int', 'x2', 'int' , 'y2'], 1, '_dist: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n DISTPP R1 \n RET', false, 0);
 	registerFunction('atstmap', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'TACTM R0', 'builtin', 0);
 	registerFunction('img', 'void', ['int', 'a', 'int', 'x', 'int', 'y', 'int', 'w', 'int', 'h'], 1, 'DRWIM R0', 'builtin', 0);
@@ -2517,7 +2523,7 @@ function compile(t) {
 	dataAsm.push('_partcolor: \n MOV R1,R0 \n LDC R2,2 \n ADD R1,R2 \n MPARTC R1 \n RET');
 	registerFunction('partcolor', 'int', ['int', 'col1', 'int', 'col2', 'int', 'prefsteps', 'int', 'ptype'], 1, dataAsm, false, 0);
 	registerFunction('parttime', 'void', ['int', 'time', 'int', 'diff'], 1, 'SPART R0', 'builtin', 0);
-	registerFunction('partdir', 'void', ['int', 'gravity', 'int', 'dir', 'int', 'dir1', 'int', 'speed'], 1, 'SEMIT R0', 'builtin', 0);
+	registerFunction('partdir', 'void', ['void', 'gravity', 'int', 'dir', 'int', 'dir1', 'void', 'speed'], 1, 'SEMIT R0', 'builtin', 0);
 	registerFunction('partset', 'void', ['int', 'x', 'int', 'y', 'int', 'pcolor', 'int', 'radpx', 'int', 'count'], 1, 'DPART R0', 'builtin', 0);
 	registerFunction('partdraw', 'void', [], 1, 'APART', 'inline', 0);
 	registerFunction('map', 'void', ['int', 'celx', 'int', 'cely', 'int', 'sx', 'int', 'sy', 'int', 'celw', 'int', 'celh', 'int', 'layer'], 1, 'DRWMAP R0', 'builtin', 0);
