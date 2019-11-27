@@ -302,16 +302,23 @@ function Cpu(){
 	}
 
 	function setMem(to_adr, val, num_bytes) {
+		var numb = (0x8000 < num_bytes) ? 0x8000 : num_bytes;
+		if (to_adr + numb > 0x8000) numb = 0x8000 - to_adr;
 		val = val & 0xff;
-		for (var i = 0; i < num_bytes; i++) {
+		mem.fill(val, to_adr, numb);
+		/*for (var i = 0; i < num_bytes; i++) {
 			mem[to_adr++] = val;
-		}
+		}*/
 	}
 
 	function copyMem(to_adr, from_adr, num_bytes) {
-		for (var i = 0; i < num_bytes; i++) {
+		var numb = (0x8000 < num_bytes) ? 0x8000 : num_bytes;
+		if (to_adr + numb > 0x8000) numb = 0x8000 - to_adr;
+		if (from_adr + numb > 0x8000) numb = 0x8000 - from_adr;
+		mem.copyWithin(to_adr,from_adr,from_adr+numb);
+		/*for (var i = 0; i < num_bytes; i++) {
 			mem[to_adr++] = mem[from_adr++];
-		}
+		}*/
 	}
 	
 	function setRedraw(){

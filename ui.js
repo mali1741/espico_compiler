@@ -698,11 +698,13 @@ function Display() {
 	}
 	
 	function resetPalette(){
-		isChangePalette = true;
 		cpu.setPalT(1);	
 		for(var i = 0; i < 16; i++) {
 			drwpalette[i] = i;
-			palette[i] = epalette[i];
+			if (palette[i] != epalette[i]) {
+				palette[i] = epalette[i];
+				isChangePalette = true;
+			}
 		}
 	}
 
