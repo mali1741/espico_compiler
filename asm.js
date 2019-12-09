@@ -408,6 +408,10 @@ function asm(s) {
 				out.push(0x88); //MEMCPY R			88 1R
 				out.push(0x10 + getRegister(a[i + 1]));
 				return;
+			case 'MEMCONV':
+				out.push(0x8C); //MEMCONV R			8C 0R
+				out.push(0x00 + getRegister(a[i + 1]));
+				return;
 			case 'JMP':
 				out.push(0x90); //JMP adr			90 00 XXXX
 				out.push(0x00);
@@ -641,7 +645,7 @@ function asm(s) {
 				out.push(0x30 + getRegister(a[i + 1]));
 				return;
 			case 'PPIX':
-				out.push(0xD3); // PPIX R,R		D3RR
+				out.push(0xD3); // PPIX R,R			D3RR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
 			case 'DRWIM':
@@ -677,11 +681,11 @@ function asm(s) {
 				out.push(0x70 + getRegister(a[i + 1]));
 				return;
 			case 'SMAPXY':
-				out.push(0xD4); // STILE R		D4 8R
+				out.push(0xD4); // STILE R		D48R
 				out.push(0x80 + getRegister(a[i + 1]));
 				return;
 			case 'ACTDS':
-				out.push(0xD4); // ACTDS R*2			D4 9R
+				out.push(0xD4); // ACTDS R*2			D49R
 				out.push(0x90 + getRegister(a[i + 1]));
 				return;
 			case 'DRWBIT':
@@ -760,16 +764,16 @@ function asm(s) {
 				out.push(0xD7); // MPARTC		D7 7R
 				out.push(0x70 + getRegister(a[i + 1]));
 				return;
-			case 'SCROLL':
-				out.push(0xD8); // SCROLL R,R		D8RR
+			case 'SGET':
+				out.push(0xD8); // SGET R,R		D8RR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
 			case 'GETPIX':
 				out.push(0xD9); // GETPIX R,R		D9RR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
-			case 'ATAN2':
-				out.push(0xDA); // ATAN2  R,R		DARR
+			case 'SSET':
+				out.push(0xDA); // SSET R,R		DARR
 				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
 			case 'GACTXY':
@@ -875,6 +879,10 @@ function asm(s) {
 			case 'DIVRES': //divide result
 				out.push(0xC5);
 				out.push(((strToNum(a[i + 1])) << 4) + (getRegister(a[i + 3])));
+				return;
+			case 'ATAN2':
+				out.push(0xCA); // ATAN2  R,R		CARR
+				out.push((getRegister(a[i + 1]) << 4) + (getRegister(a[i + 3])));
 				return;
 			}
 		}

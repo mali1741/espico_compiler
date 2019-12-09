@@ -305,7 +305,7 @@ function Cpu(){
 		var numb = (0x8000 < num_bytes) ? 0x8000 : num_bytes;
 		if (to_adr + numb > 0x8000) numb = 0x8000 - to_adr;
 		val = val & 0xff;
-		mem.fill(val, to_adr, numb);
+		mem.fill(val, to_adr, to_adr+numb);
 		/*for (var i = 0; i < num_bytes; i++) {
 			mem[to_adr++] = val;
 		}*/
@@ -321,6 +321,16 @@ function Cpu(){
 		}*/
 	}
 	
+	function convMem(to_adr, from_adr, num_bytes) {
+		var numb = (0x8000 < num_bytes) ? 0x8000 : num_bytes;
+		if (to_adr + numb > 0x8000) numb = 0x8000 - to_adr;
+		if (from_adr + 256 > 0x8000) return;
+		for (var i = 0; i < num_bytes; i++) {
+			mem[to_adr] = mem[from_adr+mem[to_adr]];
+                        to_adr++;
+		}
+	}
+
 	function setRedraw(){
 		lastJKey = globalJKey;
 		redraw = 1;
@@ -403,6 +413,17 @@ function Cpu(){
 		return 0;
 	}
 
+	function getSpritePix(x, y) {
+		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+			if (x & 1) {
+				return GET_PIX_RIGHT(mem[SPRITE_MEMMAP+MEM_PIX(x >> 1, y)]);
+			} else {
+				return GET_PIX_LEFT(mem[SPRITE_MEMMAP+MEM_PIX(x >> 1, y)]);
+			}
+		}
+		return 0;
+	}
+
 	function getPix(x, y) {
 		if(x >= 0 && x < 128 && y >= 0 && y < 128) {
 			if (x & 1) {
@@ -414,6 +435,18 @@ function Cpu(){
 		return 0;
 	}
 		
+	function setSpritePix(x, y, col){
+		  if(x >= 0 && x < 128 && y >= 0 && y < 128) {
+		    var x2 = x >> 1;
+		    var px = mem[SPRITE_MEMMAP+MEM_PIX(x2,y)];
+		    if (x & 1) {
+			px = SET_PIX_RIGHT(px, col);
+		    } else {
+			px = SET_PIX_LEFT(px, col);
+		    }
+		    mem[SPRITE_MEMMAP+MEM_PIX(x2,y)] = px;
+		  }
+	}
 
 	function setPix(x, y, col){
 		x -= espico.camx;
@@ -1499,6 +1532,19 @@ function Cpu(){
 							copyMem(ptr1, ptr2, numb);
 						}
 						break;
+					case 0x8C:
+						// MEMCONV R		8C 0R
+						reg1 = (op2 & 0xf0);
+						reg2 = (op2 & 0x0f);
+						var adr = reg[reg2];
+						var ptr1 = (readInt(adr + 4) & 0x7fff);
+						var ptr2 = (readInt(adr + 2) & 0x7fff);
+						var numb = readInt(adr);
+						if (reg1 == 0x00) {
+							if (ptr2 + 256 <= 0x8000) 
+								convMem(ptr1, ptr2, numb);
+						}
+						break;
 				}
 				break;
 			case 0x90:
@@ -1771,7 +1817,7 @@ function Cpu(){
 							n = ((fromInt16(reg[reg1])) ? 0 : 1);
 							reg[reg1] = ToInt16(n);
 						}
-						// ABS R		AD 6R
+						// NOT R		AD 6R
 						else if(reg2 == 0x60){
 							n = ~(fromInt16(reg[reg1]));
 							reg[reg1] = ToInt16(n);
@@ -1870,6 +1916,13 @@ function Cpu(){
 				          }
 				          reg[reg2] = ToInt16(n);
 				          break;
+					case 0xCA:
+					  // ATAN2 R,R		CA RR
+					  reg1 = (op2 & 0xf0) >> 4;//x
+					  reg2 = op2 & 0xf;//y
+					  n = Math.floor(Math.atan2(fromInt16(reg[reg1]), fromInt16(reg[reg2])) * 57.4);
+					  reg[reg1] = ToInt16(n);
+					  break;
 				}
 				break;
 			case 0xD0:
@@ -2045,7 +2098,7 @@ function Cpu(){
 						// PPIX R,R		D3RR
 						reg1 = (op2 & 0xf0) >> 4;
 						reg2 = op2 & 0xf;
-						setPix(reg[reg1], reg[reg2], color);
+						setPix(reg[reg1], reg[reg2], drwpalette[color]);
 						break;
 					case 0xD4:
 						switch(op2 & 0xf0){
@@ -2199,12 +2252,11 @@ function Cpu(){
 						}
 						break;
 					case 0xD8:
-						// SCROLL R,R		D8RR  disabled in espico
-						reg1 = (op2 & 0xf0) >> 4;//шаг, доделать
-						reg2 = op2 & 0xf;//направление
-						// /scrollScreen(1, reg[reg2]);
-						// if(reg[reg2] == 0 || reg[reg2] == 2)
-						// 	scrollScreen(1, reg[reg2]);
+						// SGET R,R		D8RR
+						reg1 = (op2 & 0xf0) >> 4;//x
+						reg2 = op2 & 0xf;//y
+						n = getSpritePix(reg[reg1], reg[reg2]);
+						reg[reg1] = ToInt16(n);
 						break;
 					case 0xD9:
 						// GETPIX R,R		D9RR
@@ -2214,11 +2266,10 @@ function Cpu(){
 						reg[reg1] = ToInt16(n);
 						break;
 					case 0xDA:
-						// ATAN2 R,R		DA RR
-						reg1 = (op2 & 0xf0) >> 4;//x
-						reg2 = op2 & 0xf;//y
-						n = Math.floor(Math.atan2(fromInt16(reg[reg1]), fromInt16(reg[reg2])) * 57.4);
-						reg[reg1] = ToInt16(n);
+						// SSET R,R		DARR
+						reg1 = (op2 & 0xf0) >> 4;
+						reg2 = op2 & 0xf;
+						setSpritePix(reg[reg1], reg[reg2], drwpalette[color]);
 						break;
 					case 0xDB:
 						// GACTXY R,R		DB RR

@@ -27,8 +27,10 @@ function tokenize(s) {
 		'IMG_FLIP_Y', 0x80, 'IMG_FLIP_X', 0x40,
 		'KEY_LEFT', 1, 'KEY_RIGHT', 2, 'KEY_UP', 4, 'KEY_DOWN', 8, 
 		'KEY_B', 16, 'KEY_A', 32, 'KEY_START', 64, 'KEY_SELECT', 128,
-		'BTN_LEFT', 1, 'BTN_RIGHT', 2, 'BTN_UP', 4, 'BTN_DOWN', 8, 
-		'BTN_B', 16, 'BTN_A', 32, 'BTN_START', 64, 'BTN_SELECT', 128, 'BTN_ALL', -1,
+		'BTN_LEFT', 0, 'BTN_RIGHT', 1, 'BTN_UP', 2, 'BTN_DOWN', 3, 
+		'BTN_B', 4, 'BTN_A', 5, 'BTN_START', 6, 'BTN_SELECT', 7,
+		'BTN_MLEFT', 1, 'BTN_MRIGHT', 2, 'BTN_MUP', 4, 'BTN_MDOWN', 8, 
+		'BTN_MB', 16, 'BTN_MA', 32, 'BTN_MSTART', 64, 'BTN_MSELECT', 128, 'BTN_ALL', -1,
 		'ACTOR_MAP_COLL', 0x8000, 'ACTOR_IN_EVENT', 0x1000, 'ACTOR_Y_EVENT', 0x0C00, 'ACTOR_X_EVENT', 0x0300, 
 		'ACTOR_ANIM_EVENT', 0x8000, 'ACTOR_MASK', 0x001F, 
 		'ACTOR_T_EVENT', 0x0800, 'ACTOR_B_EVENT', 0x0400, 'ACTOR_L_EVENT', 0x0200, 'ACTOR_R_EVENT', 0x0100,
@@ -160,7 +162,7 @@ function tokenize(s) {
 				tokens[thisToken] += s[i];
 			}
 			if(!(s[i] == '-' 
-					&& (tokens[thisToken - 1] == '=' || tokens[thisToken - 1] == '(' || tokens[thisToken - 1] == ',' || tokens[thisToken - 1] == '>' || tokens[thisToken - 1] == '<') 
+					&& (tokens[thisToken - 1] == '=' || tokens[thisToken - 1] == '(' || tokens[thisToken - 1] == ',' || tokens[thisToken - 1] == '>' || tokens[thisToken - 1] == '<' || tokens[thisToken - 1] == '{') 
 					&& s[i + 1] >= '0' && s[i + 1] <= '9')){
 				thisToken++;
 				tokens[thisToken] = '';
@@ -209,6 +211,7 @@ function compile(t) {
 	var lastEndString = 0; //указатель на токен, являющийся последним в предыдущей строке
 	var labelNumber = 0; //номер ссылки, необходим для создания уникальных имен ссылок
 	var localStackLength = 0; //используется в функциях для работы с локальными переменными относительно указателя стека
+	var blockStack = []; // stack for break and continue
 	var switchStack = []; //указывает на последний switch, необходимо для обработки break
         var typeOnStack = []; //type of register on stack
 
@@ -326,7 +329,7 @@ function compile(t) {
 					er = "expected opening bracket in construction " + par;
 					break;
 				case 14:
-					er = "no switch design";
+					er = par+" not inside switch/for/while block";
 					break;
 				case 15:
 					er = "colon is expected";
@@ -469,6 +472,8 @@ function compile(t) {
 		} else if (typeOnStack[r] == 'int' && type == 'char') {
 			asm.push(' LDC R15,255 \n AND R'+r+',R15');
 			typeOnStack[r] = 'char';
+                } else if ((typeOnStack[r] == 'int' || typeOnStack[r] == 'char') && type.startsWith('*')) {
+			typeOnStack[r] = type;
 		} else if (typeOnStack[r] == 'actorval' || type == 'actorval') {
 			typeOnStack[r] = type;
 		} else if (typeOnStack[r] == 'actor' || type == 'actor') {
@@ -1407,7 +1412,8 @@ function compile(t) {
 			} else {
 				asm.push(' LDI R' + registerCount + ',(_' + vlabel + vindex + ')');
 			}
-			typeOnStack[registerCount] = v.type;
+			if (v.length > 1) typeOnStack[registerCount] = '*'+v.type;
+			else typeOnStack[registerCount] = v.type;
 			registerCount++;
 		}
 		//присваивание значения переменной
@@ -1485,6 +1491,9 @@ function compile(t) {
 				if(v.type == '*int' && point){
 					asm.push(' MOV R' + (registerCount + 2) + ',R' + (registerCount + 1));
 					asm.push(' LDI R' + (registerCount + 1) + ',(R' + (registerCount + 2) + ')');
+				} else if(v.type == '*char' && point){
+					asm.push(' MOV R' + (registerCount + 2) + ',R' + (registerCount + 1));
+					asm.push(' LDC R' + (registerCount + 1) + ',(R' + (registerCount + 2) + ')');
 				} else if (v.type == 'actorval') {
                                 	asm.push(' LDC R15,'+v.index);
 					asm.push(' ACTGET R' + (registerCount + 1) + ',R15');
@@ -1520,7 +1529,15 @@ function compile(t) {
 					asm.push(' MOV R' + registerCount + ',R' + (registerCount + 1));
 				}
 			}
-			if (v.type == '*int' && point) {
+			if (v.type == '*char' && point) {
+				typeCastToFirst(registerCount, 'char');
+				if (op == '=') {
+					asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
+					asm.push(' STC (R' + (registerCount + 1) + '),R' + registerCount);
+				} else {
+					asm.push(' STC (R' + (registerCount + 2) + '),R' + registerCount);
+				}
+			} else if (v.type == '*int' && point) {
 				typeCastToFirst(registerCount, 'int');
 				if (op == '=') {
 					asm.push(' LDI R' + (registerCount + 1) + ',(_' + vlabel + vindex + ')');
@@ -1794,6 +1811,7 @@ function compile(t) {
 			putError(lineCount, 13, 'while');
 			//info("" + lineCount + " ожидалась открывающая скобка в конструкции while");
 		asm.push('start_while_' + labe + ':');
+		blockStack.push('while_'+labe);
 		skipBracket();
 		registerCount--;
 		asm.push(' CMP R' + registerCount + ',0');
@@ -1816,6 +1834,7 @@ function compile(t) {
 		getToken();
 		removeNewLine();
 		asm.push(' JMP start_while_' + labe + ' \nend_while_' + labe + ':');
+		blockStack.pop();
 		previousToken();
 	}
 
@@ -1841,6 +1860,7 @@ function compile(t) {
 		getToken();
 		//проверка будет выполнятся каждую итерацию
 		asm.push('start_for_' + labe + ':');
+		blockStack.push('for_'+labe);
 		execut();
 		while (thisToken != ';') {
 			getToken();
@@ -1874,6 +1894,7 @@ function compile(t) {
 			}
 		}
 		//теперь транслируем третий параметр
+		asm.push('next_for_' + labe + ':');
 		memToken = thisTokenNumber;
 		thisTokenNumber = startToken;
 		registerCount = 1;
@@ -1882,6 +1903,7 @@ function compile(t) {
 		//и восстанавливаем позицию транслирования
 		thisTokenNumber = memToken;
 		asm.push(' JMP start_for_' + labe + ' \nend_for_' + labe + ':');
+		blockStack.pop();
 		registerCount = 1;
 	}
 
@@ -1930,6 +1952,7 @@ function compile(t) {
 			block: asm.length,
 			labe: labe
 		});
+		blockStack.push('switch_'+labe);
 		asm.push(' ');
 		asm.push(' JMP end_switch_' + labe);
 		getToken();
@@ -1942,6 +1965,7 @@ function compile(t) {
 		}
 		asm.push('end_switch_' + labe + ':');
 		switchStack.pop();
+		blockStack.pop();
 		getToken();
 		removeNewLine();
 	}
@@ -1957,7 +1981,7 @@ function compile(t) {
 		if (switchStack.length > 0)
 			lastSwitch = switchStack[switchStack.length - 1];
 		else
-			putError(lineCount, 14, '');
+			putError(lineCount, 14, 'case');
 			//info("" + lineCount + " отсутствует конструкция switch ");
 		getToken();
 		if (isNumber(thisToken)) {
@@ -1983,7 +2007,7 @@ function compile(t) {
 		if (switchStack.length > 0)
 			lastSwitch = switchStack[switchStack.length - 1];
 		else
-			putError(lineCount, 14, '');
+			putError(lineCount, 14, 'default');
 			//info("" + lineCount + " отсутствует конструкция switch ");
 		getToken();
 		if (thisToken != ':')
@@ -1994,16 +2018,27 @@ function compile(t) {
 	}
 	//break в данный момент работает только для прерывания switch, нужно доработать
 	function breakToken() {
-		var lastSwitch = {
-			block: 0,
-			labe: 0
-		};
-		if (switchStack.length > 0) {
-			lastSwitch = switchStack[switchStack.length - 1];
-			asm.push(' JMP end_switch_' + lastSwitch.labe);
-		} else
-			putError(lineCount, 14, '');
-			//info("" + lineCount + " отсутствует конструкция switch ");
+		if (blockStack.length > 0) {
+			asm.push(' JMP end_'+blockStack[blockStack.length -1]);
+		} else {
+			putError(lineCount, 14, 'break');
+		}
+	}
+
+	function continueToken() {
+		if (blockStack.length > 0) {
+			var i = blockStack.length - 1;
+			while (i > 0) {
+				if (blockStack[i].startsWith('for_')) {
+					asm.push(' JMP next_'+blockStack[i]);
+					return;
+				} else if (blockStack[i].startsWith('while_')) {
+					asm.push(' JMP start_'+blockStack[i]);
+					return;
+				}
+			}
+		}
+		putError(lineCount, 14, 'continue');
 	}
 
 	function typedefToken() {
@@ -2340,6 +2375,8 @@ function compile(t) {
 			} else {
 				putError(lineCount, 20, 'volatile must be followed by variable declaration');
 			}
+		} else if (thisToken == 'continue') {
+			continueToken();
 		} else if (thisToken == 'break') {
 			breakToken();
 		} else if (thisToken == 'unsigned') {
@@ -2440,6 +2477,7 @@ function compile(t) {
 	registerFunction('rstdrwaddr', 'void', [], 1, 'RSTDAD', 'inline', 0);
 	registerFunction('memset', 'void', ['int', 'to', 'int', 'val', 'int', 'num'], 1, 'MEMSET R0', 'builtin', 0);
 	registerFunction('memcpy', 'void', ['int', 'to', 'int', 'from', 'int', 'num'], 1, 'MEMCPY R0', 'builtin', 0);
+	registerFunction('memconv', 'void', ['int', 'to', 'int', 'from', 'int', 'num'], 1, 'MEMCONV R0', 'builtin', 0);
 	registerFunction('peek', 'int', ['int', 'adr'], 1, 'LDC R%1,(R%1)', 'inline', 0);
 	registerFunction('peek2', 'int', ['int', 'adr'], 1, 'LDI R%1,(R%1)', 'inline', 0);
 	registerFunction('poke', 'void', ['int', 'adr', 'int', 'val'], 1, 'STC (R%2),R%1', 'inline', 0);
@@ -2482,16 +2520,18 @@ function compile(t) {
 	registerFunction('btn', 'int', ['int', 'b'], 1, 'BTN R%1', 'inline', 0);
 	registerFunction('btnp', 'int', ['int', 'b'], 1, 'BTNP R%1', 'inline', 0);
 	registerFunction('pset', 'void', ['int', 'x', 'int', 'y'], 1, 'PPIX R%2,R%1', 'inline', 0);
-	registerFunction('pget', 'int', ['int', 'x', 'int', 'y'], 1, 'GETPIX R%2,R%1', 'inline', 0);
+	registerFunction('pget', 'char', ['int', 'x', 'int', 'y'], 1, 'GETPIX R%2,R%1', 'inline', 0);
 	registerFunction('atstcoll', 'void', [], 1, 'TACTC', 'inline', 0);
 	registerFunction('amove', 'void', ['int', 'n'], 1, 'MVACT R%1', 'inline', 0);
 	registerFunction('adraw', 'void', ['int', 'n'], 1, 'DRWACT R%1', 'inline', 0);
 	registerFunction('apos', 'void', ['int', 'n', 'int', 'x', 'int', 'y'], 1, 'ACTPOS R%3,R%2,R%1', 'inline', 0);
 	registerFunction('axy', 'int', ['int', 'x', 'int', 'y'], 1, 'ACTXY R%2,R%1', 'inline', 0);
+	registerFunction('sset', 'void', ['int', 'x', 'int', 'y'], 1, 'SSET R%2,R%1', 'inline', 0);
+	registerFunction('sget', 'char', ['int', 'x', 'int', 'y'], 1, 'SGET R%2,R%1', 'inline', 0);
 	registerFunction('fset', 'void', ['int', 's', 'int', 'f'], 1, 'FSET R%2,R%1', 'inline', 0);
-	registerFunction('fget', 'void', ['int', 's'], 1, 'FGET R%1', 'inline', 0);
-	registerFunction('mget', 'int', ['int', 'x', 'int', 'y'], 1, 'GMAPXY R%2,R%1', 'inline', 0);
+	registerFunction('fget', 'char', ['int', 's'], 1, 'FGET R%1', 'inline', 0);
 	registerFunction('mset', 'void', ['int', 'x', 'int', 'y', 'int', 'v'], 1, 'SMAPXY R0', 'builtin', 0);
+	registerFunction('mget', 'char', ['int', 'x', 'int', 'y'], 1, 'GMAPXY R%2,R%1', 'inline', 0);
 
         registerFunction('tone', 'void', ['int', 'freq', 'int', 'time'], 1, 'PLAYTN R%2,R%1', 'inline', 0);
         registerFunction('loadrt', 'void', ['int', 'adr', 'int', 'loop'], 1, 'LOADRT R%2,R%1', 'inline', 0);
