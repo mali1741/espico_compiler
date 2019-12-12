@@ -38,8 +38,23 @@ input.onclick = input.onkeydown = input.onkeyup = input.onkeypress = input.oncut
 (function () {
     var url = window.location.href.toString();
     if(url.indexOf('?src=') > -1){
-        input.value = 'loading data from gist, please wait';
         var src = url.split('?src=');
+	if (src[1].endsWith('.epo')) {
+        input.value = 'loading data from url '+src[1]+' please wait';
+        fetch(src[1])
+          .then(function(response) {
+	if (!response.ok) {
+    	throw new Error('HTTP error, status = ' + response.status);
+  	}
+            return response.text();
+           })
+          .then(function(result) {
+        	loadSrc(result);
+        	spriteEditor.loadHex(result, loadprops());
+        	cpu.loadHex(result, loadprops());
+          });
+	} else {
+        input.value = 'loading data from gist, please wait';
         fetch('https://api.github.com/gists/' + src[1])
           .then(function(results) {
             return results.json();
@@ -51,8 +66,9 @@ input.onclick = input.onkeydown = input.onkeyup = input.onkeypress = input.oncut
                         break;
                     }
                     input.value = file;
-					setTimeout(lineCount, 300);
+		    setTimeout(lineCount, 300);
           });
+	} 
     }
 })();
 
