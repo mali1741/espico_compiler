@@ -1,0 +1,263 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head runat="server">
+    <title>Image converter</title>
+    <style type="text/css">
+#drop-area, #result {
+  border: 2px dashed #ccc;
+  width: 480px;
+  font-family: sans-serif;
+  padding: 20px;
+  margin: 20px;
+  float:left;
+}
+#drop-area.highlight {
+  border-color: purple;
+}
+p {
+  margin-top: 0;
+}
+.my-form {
+  margin-bottom: 10px;
+}
+#gallery {
+  margin-top: 10px;
+}
+img, canvas{
+  width: 480px;
+  margin-bottom: 10px;
+  margin-right: 10px;
+  vertical-align: middle;
+  image-rendering: optimizeSpeed;             /* Older versions of FF          */
+  image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+  image-rendering: -webkit-optimize-contrast; /* Safari                        */
+  image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
+  image-rendering: pixelated;                 /* Awesome future-browsers       */
+  -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+}
+.button {
+  display: inline-block;
+  padding: 10px;
+  background: #ccc;
+  cursor: pointer;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+.button:hover {
+  background: #ddd;
+}
+#fileElem {
+  display: none;
+}
+#outarray{
+	width: 474px;
+    height: 95px;
+	resize: none;
+}
+</style>
+</head>
+<body>
+	<div id="drop-area">
+		<form class="my-form">
+		<p>Upload an image using the file selection dialog or by dragging the image to the selected area</p>
+		<input type="file" id="fileElem" multiple accept="image/*" onchange="handleFiles(this.files)">
+		<label class="button" for="fileElem">Select image</label>
+		</form>
+		<img id="image"></img>
+	</div>
+	<div id="result" style="border: none;">
+		<textarea id="outarray"></textarea>
+		<canvas id="resultimage" width="128" height="128"></canvas>
+		<div id="dsize"></div>
+		<input type="radio" id="pChoice1" name="palette" value="0" onchange="drawPalette();quantization()" checked>
+		<label for="Choice1">standart palette</label>
+		<input type="radio" id="pChoice2" name="palette" value="1" onchange="drawPalette();quantization()">
+		<label for="Choice2">original palette</label>
+		<canvas id="cpalette" width="16" height="1" style="width: 320px"></canvas>
+		<input id="hexpalette" style="width: 320px">
+	</div>
+	<script type="text/javascript">
+	var palette = [
+		[0, 0, 0], [237, 227, 199], [190, 55, 70], [127, 184, 181],
+		[74, 62, 79], [110, 167, 108], [39, 63, 104], [222, 187, 89],
+		[180, 141, 108], [66, 89, 90], [192, 98, 77], [51, 51, 51],
+		[119, 119, 119], [143, 171, 98], [58, 191, 209], [187, 187, 187]
+	];
+	var imageloaded = false;
+	var usedpalette = 0;
+	var newpalette = [];
+	var dropArea = document.getElementById('drop-area');
+	var canvas = document.getElementById('resultimage');
+	var ctx = canvas.getContext('2d');
+	var width = 128;
+	var height = 128;
+	['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function (eventName){
+	  dropArea.addEventListener(eventName, preventDefaults, false);
+	});
+	function preventDefaults (e) {
+	  e.preventDefault();
+	  e.stopPropagation();
+	}
+	['dragenter', 'dragover'].forEach(function (eventName){
+	  dropArea.addEventListener(eventName, highlight, false);
+	});
+	['dragleave', 'drop'].forEach(function (eventName){
+	  dropArea.addEventListener(eventName, unhighlight, false);
+	});
+	function rgbtohex(r, g, b){
+		var r5 = Math.floor(r * 31.0 / 255.0 + 0.5);
+		var g6 = Math.floor(g * 63.0 / 255.0 + 0.5);
+		var b5 = Math.floor(b * 31.0 / 255.0 + 0.5);
+		return '0x' + Number((r5 << 11) + (g6 << 5) + b5).toString(16);
+	}
+	function drawPalette(){
+		var canv = document.getElementById('cpalette');
+		var c = canv.getContext('2d');
+		var t = '';
+		if(document.getElementById("pChoice1").checked){
+			usedpalette = 0;
+			for (var i = 0; i < 16; i++) {
+				c.fillStyle = 'rgb(' + palette[i][0] + ',' + palette[i][1] + ',' + palette[i][2] + ')';
+				c.fillRect(i, 0, 1, 1);
+				t += ',' + rgbtohex(palette[i][0], palette[i][1], palette[i][2]);
+			}
+		}
+		else{
+			usedpalette = 1;
+			for (var i = 0; i < 16; i++) {
+				if(newpalette[i]){
+					c.fillStyle = 'rgb(' + newpalette[i][0] + ',' + newpalette[i][1] + ',' + newpalette[i][2] + ')';
+					t += ',' + rgbtohex(newpalette[i][0], newpalette[i][1], newpalette[i][2]);
+				}
+				c.fillRect(i, 0, 1, 1);
+			}
+		}
+		document.getElementById("hexpalette").value = t.slice(1);
+	}
+	function getcolor(r, g, b){
+		var pd = 1000000, d, c;
+		c = palette[0];
+		c[3] = 0;
+		for(var i = 0; i < 16; i++){
+			if(usedpalette == 0)
+				d = 30*(palette[i][0] - r)*(palette[i][0] - r) + 59*(palette[i][1] - g)*(palette[i][1] - g) + 11*(palette[i][2] - b)*(palette[i][2] - b);
+			else
+				d = 30*(newpalette[i][0] - r)*(newpalette[i][0] - r) + 59*(newpalette[i][1] - g)*(newpalette[i][1] - g) + 11*(newpalette[i][2] - b)*(newpalette[i][2] - b);
+			if(d < pd){
+				pd = d;
+				if(usedpalette == 0)
+					c = palette[i];
+				else
+					c = newpalette[i];
+				c[3] = i;
+			}
+		}
+		return c;
+	}
+	function quantization(){
+		if(imageloaded){
+			var img = document.getElementById('image');
+			ctx.drawImage(img, 0, 0, width, height);
+			var imageData = ctx.getImageData(0, 0, width, height);
+			var data = imageData.data;
+			var outarray = document.getElementById('outarray');
+			var out = '';
+			var n = '';
+			for (var i = 0; i < data.length; i += 4) {
+			  var newc = getcolor(data[i], data[i + 1], data[i + 2]);
+			  data[i]     = newc[0]; // red
+			  data[i + 1] = newc[1]; // green
+			  data[i + 2] = newc[2]; // blue
+			  data[i + 3] = 255;	 // alpha
+			  if(!n)
+				n = newc[3].toString(16);
+			  else{
+				n += newc[3].toString(16);
+				out += ',0x' + n;
+				n = '';
+			  }
+			}
+			ctx.putImageData(imageData, 0, 0);
+			outarray.value = out.slice(1);
+		}
+	}
+	function highlight(e) {
+	  dropArea.classList.add('highlight');
+	}
+	function unhighlight(e) {
+	  dropArea.classList.remove('highlight');
+	}
+	dropArea.addEventListener('drop', handleDrop, false)
+	function handleDrop(e) {
+	  var dt = e.dataTransfer;
+	  var files = dt.files;
+	  handleFiles(files);
+	}
+	function handleFiles(files) {
+	  previewFile(files[0]);
+	}
+	function sortColor(a,b){
+		if(a[3] < b[3])
+			return 1;
+		return -1;
+	}
+	function getIndex(arr, r, g, b){
+		for(var i = 0; i < arr.length; i++){
+			if(arr[i][0] == r && arr[i][1] == g && arr[i][2] == b)
+				return i;
+		}
+		return -1;
+	}
+	function createPalette(){
+		var allcolor = [];
+		var imageData = ctx.getImageData(0, 0, width, height);
+		var l;
+		var data = imageData.data;
+		for (var i = 0; i < data.length; i += 4) {
+			var n = getIndex(allcolor, Math.floor(data[i] / 16) * 16, Math.floor(data[i + 1] / 16) * 16, Math.floor(data[i + 2] / 16) * 16);
+			if(n >= 0)
+				allcolor[n][3]++;
+			else
+				allcolor.push([Math.floor(data[i] / 16) * 16, Math.floor(data[i + 1] / 16) * 16, Math.floor(data[i + 2] / 16) * 16, 1]);
+		}
+		allcolor.sort(sortColor);
+		newpalette[0] = [0,0,0];
+		for(var i = 1; i < 16; i++){
+			newpalette[i] = [];
+			if(i < allcolor.length){
+				newpalette[i][0] = allcolor[i][0];
+				newpalette[i][1] = allcolor[i][1];
+				newpalette[i][2] = allcolor[i][2];
+			}
+			else
+				newpalette[i] = [0,0,0];
+		}
+	}
+	function previewFile(file) {
+	  var reader = new FileReader();
+	  reader.readAsDataURL(file);
+	  reader.onloadend = function() {
+		var img = document.getElementById('image');
+		img.src = reader.result;
+		img.onload = function(){
+			imageloaded = true;
+			width = img.naturalWidth;
+			height = img.naturalHeight;
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+			if(!(width < 128 && height < 128)){
+				width = 128;
+				height = 128;
+			}
+			width += width % 2;
+			ctx.drawImage(img, 0, 0, width, height);
+			createPalette();
+			drawPalette();
+			quantization();
+			document.getElementById('dsize').innerHTML = width + 'x' + height;
+		}
+	  }
+	}
+	drawPalette();
+	</script>
+</body>
+</html>
