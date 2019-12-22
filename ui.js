@@ -152,6 +152,7 @@ function keyDownHandler(e) {
 		case 68:
 			globalJKey |= 2;
 			break;
+		case 88:
 		case 32: //B - space
 			globalJKey |= 32;
 			break;
@@ -180,6 +181,7 @@ function keyUpHandler(e) {
 		case 68:
 			globalJKey &= ~2;
 			break;
+		case 88:
 		case 32: //B - space
 			globalJKey &= ~32;
 			break;
@@ -766,30 +768,62 @@ function savebin(){
 	var newByteArr=[];
 	var newHexStr;
 	if(file.length>1){
-		for(var i=0;i<file.length;i++){
+		/*for(var i=0;i<file.length;i++){
 			newByteArr.push(file[i] & 0xFF);
 		}
-		var newFile=new Uint8Array(newByteArr);
+		var newFile=new Uint8Array(newByteArr);*/
 		newHexStr = toHexE(file,"epo",32);
 		var blob = new Blob([newHexStr], {type: "charset=iso-8859-1"});
 		saveAs(blob, "rom.hex");
 	}
 }
 
+function srcname() {
+	var doc = document.getElementById("input");
+	var txt = doc.value;
+	if (txt.startsWith('//')) {
+		var out = txt.slice(2,23).trim().replace(/\s.*/,'');
+		return out;
+		// return first word (max 20 chars)
+	}
+	return 'game';
+}
+
+function savesrc(inclsource){
+	var doc = document.getElementById("input");
+	var txt = doc.value;
+	var out = '__nfo__\n';
+	while (txt.startsWith('//')) {
+		// out = this line
+		var e = txt.indexOf('\n');
+		if (e == -1) break;
+		out += txt.slice(2,e).trim()+'\n';
+		txt = txt.slice(e+1);
+	}
+	if (inclsource) {
+	  out += '__src__\n';
+	  out += txt;
+	  if (!out.endsWith('\n')) out += '\n';
+	}
+	return out;
+}
+
 function saveall(){
 	var newByteArr=[];
-	var newHexStr;
+	var newHexStr = '';
 	if(file.length>1){
-		for(var i=0;i<file.length;i++){
+		/* for(var i=0;i<file.length;i++){
 			newByteArr.push(file[i] & 0xFF);
 		}
-		var newFile=new Uint8Array(newByteArr);
-		newHexStr = toHexE(file,"epo",32);
+		var newFile=new Uint8Array(newByteArr);*/
+		var name = srcname();
+		newHexStr = savesrc(document.getElementById("eposrc").checked);
+		newHexStr += toHexE(file,"epo",32);
 		newHexStr += cpu.exportHex("gfx");
 		newHexStr += cpu.exportHex("gff");
 		newHexStr += cpu.exportHex("map");
 		var blob = new Blob([newHexStr], {type: "charset=iso-8859-1"});
-		saveAs(blob, "game.epo");
+		saveAs(blob, name+".epo");
 	}
 }
 var display = new Display();

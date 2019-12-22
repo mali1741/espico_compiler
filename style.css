@@ -18,8 +18,46 @@ input[type=file] {
 	height: 1.6em;
 	width: 18em;
 }
+input[type=range] {
+        width: 3.7em;
+}
 textarea:focus {
 	outline: none;
+}
+.checkbox{
+        display: none;
+}
+.checkbox:checked + label{
+        background-color: #516399;
+    color: #fff;
+}
+.settingslabel{
+        display: inline-block;
+        width: 4.5em;
+        margin-top: 0.5em;
+        padding-left: 1em;
+    line-height: 1.95em;
+    vertical-align: bottom;
+    border: solid 1px;
+}
+#icon{
+        border: 1px solid;
+    margin-top: 0.7em;
+    width: 10em;
+        image-rendering: optimizeSpeed;             /* Older versions of FF          */
+        image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+        image-rendering: -webkit-optimize-contrast; /* Safari                        */
+        image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
+        image-rendering: pixelated;                 /* Awesome future-browsers       */
+        -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+}
+.hrefb{
+        background: #516399;
+        border: 1px solid #bbb;
+        color: #ffffff;
+        font: normal 13px Verdana, Geneva, sans-serif;
+        font-style: normal;
+        padding: 2.5px;
 }
 #container {
 	height: 42.5em;
@@ -88,6 +126,12 @@ textarea:focus {
 	resize: none;
 	tab-size: 4;
 	width: 100%;
+}
+#inputCanvas {
+        border:0px;
+        background-color:#fff;
+        margin-top:0px;
+        padding-top:0px;
 }
 #line-count {
 	height: auto;
@@ -173,6 +217,38 @@ textarea:focus {
 	height: 1.5em;
 	width: 90%;
 }
+.drop-menu {
+        display: inline-block;
+        cursor: pointer;
+}
+.drop-menu:hover {
+        border: 1px solid #fff;
+        }
+.drop-menu:hover .sub-menu {
+        display: inline-block;
+        }
+.sub-menu {
+        display: none;
+        position: fixed;
+        z-index: 999;
+        background: #fff;
+        padding: 10px 10px;
+        border: 1px solid #516399;
+        margin-left: -5.1em;
+    margin-top: 1.3em;
+        box-shadow: 0px 13px 25px rgba(0,0,0, 0.2);
+        }
+.sub-menu li {
+        list-style-type: none;
+        display: block;
+        border-bottom: 1px dotted #eaeaea;
+        font-size: 19px;
+        height: 22px;
+        padding: 8px 0;
+        }
+.sub-menu li:hover {
+        border-bottom: 1px dotted #bababa;
+        }
 .div_wind {
 	position: absolute;
 	box-shadow: 0 0 0.8em rgba(0,0,0,0.8);
@@ -328,6 +404,11 @@ textarea:focus {
 		height: 4em;
 		width: 100%;
 	}
+        #ram {
+                height:2em;
+                width:30em;
+                margin-right: 5em;
+        }
 	#container {
 		overflow: auto;
 	}
@@ -336,4 +417,16 @@ textarea:focus {
 		margin-left: 0;
 		padding: 2px;
 	}
+        #wrap-left {
+                height: 54em;
+        }
+        #monitor {
+                width:30em;
+        }
+        #memoryPreviev {
+                float:none;
+        }
+        #editBlock {
+                margin-top:1em;
+        }
 }

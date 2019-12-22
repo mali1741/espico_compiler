@@ -11,16 +11,28 @@
 	<div id="menu">
 		<button onclick="onlyAsm();">asm</button>
 		<button onclick="main();">compile</button>
-		<button onclick="savebin();">save ops</button>
-		<button onclick="saveall();">save all</button>
+                <div class="drop-menu hrefb">save &#9776;
+                        <ul class="sub-menu">
+                                <li><a href="#" class="hrefb" onclick="savebin();return false;">save ops</a></li>
+                                <li><a href="#" class="hrefb" onclick="saveall();return false;">save all</a></li>
+                                <li><a href="#" class="hrefb" onclick="return false;">save html</a></li>
+                        </ul>
+                </div>
 		<button onclick="spriteEditor.edit()">sprite</button>
 		<button onclick="listing();">listing</button>
 		<button onclick="debugVars();">debug</button>
 		<button onclick="viewHelp();">help</button>
+                <div class="drop-menu hrefb">utilities &#9776;
+                        <ul class="sub-menu">
+                                <li><a href="sndedit.html"  target="_blank" class="hrefb">rtttl editor</a></li>
+                                <li><a href="imgconv.html"  target="_blank" class="hrefb">image converter</a></li>
+                        </ul>
+                </div>
+		<!--
 		<select id="lang" onchange="language=this.value">
 		  <option value="eng">ENG</option>
 		  <option value="rus">RUS</option>
-		</select>
+		</select> -->
 	</div>
 	<div id="container">
 		<div id="wrap-left">
@@ -139,6 +151,20 @@ void main(){
 
         			function loadSrc(txt){
                 			var i = 0;
+					var nfo = '// ';
+                        		i = txt.indexOf("__nfo__");
+                        		if (i !== -1) {
+					  i += 7;
+                        		  while (txt[i] === '\n') i++;
+					  var e = txt.indexOf("__",i);
+					  if (e == -1) {
+						nfo += txt.substr(i).replace(/\n/g, "\n// ");
+					  } else {
+						nfo += txt.substr(i, e-i).replace(/\n/g, "\n// ");
+					  }
+					  if (nfo.endsWith('// ')) nfo = nfo.slice(0, -3);
+					  nfo += '\n';
+					}
                         		i = txt.indexOf("__src__");
                         		if (i == -1) {
                                 		// no such section
@@ -149,9 +175,9 @@ void main(){
 					var e = txt.indexOf("__",i);
 					var doc = document.getElementById("input");
 					if (e == -1) {
-						doc.value = txt.substr(i);
+						doc.value = nfo + txt.substr(i);
 					} else {
-						doc.value = txt.substr(i, e-i);
+						doc.value = nfo + txt.substr(i, e-i);
 					}
 					lineCount();
 				}
@@ -244,27 +270,26 @@ void main(){
 			<pre id = "help_hl" style='color:#000020;background:#f6f8ff;margin:0;border: 1px solid #516399;height: 31em;overflow: auto;'>
 				// text output
 				void cursor(int x, int y);
-				void print(char[]);
+				void print(*char);
 				void printc(char);
 				void printn(int);
-				void printf(char[], ...);
+				void fprintn(fixed);
+				void printf(*char, ...);
 				// math
 				int rnd(int max);
 				int sqrt(int number);
 				int abs(int number);
-				int cos(int angle);
-				int sin(int angle);
+				int intcos(int angle);
+				fixed cos(int angle);
+				int intsin(int angle);
+				fixed sin(int angle);
 				int atan2(int y, int x);
 				int dist(int x1, int y1, int x2, int y2);
 				// fixed point
-				int i2f(int i);
-				int f2i(int f);
-				int flr(int f);
-				int ceil(int f);
-				int frac(int f);
-				int frac10k(int f);
-				int fmf(int f1, int f2);
-				int fdf(int dividend, int divisor);
+				fixed flr(fixed f);
+				fixed ceil(fixed f);
+				fixed frac(fixed f);
+				fixed fabs(fixed f);
 				// input
 				int cget();
 				int kget();
@@ -279,12 +304,15 @@ void main(){
 				void camera(int x, int y);
 				void clip(int x, int y, int w, int h);
 				void zoom(int z);
+				void flipxy(int fxy);
 				void fset(int sprite);
 				char fget(int sprite);
 				void mset(int mx, int my);
 				char mget(int mx, int my);
+				void sset(int sx, int xy);
+				char sget(int sx, int sy);
 				void intcoords();
-				void fixpcoords();
+				void fcoords();
 				void coordshift(int rshift);
 				// drawing
 				void line(int x1, int y1, int x2, int y2);
@@ -301,11 +329,14 @@ void main(){
 				char pget(int x, int y);
 				void cls();
 				void flip();
+				// sound
+				void loadrt(int adr, int loop);
+				void playrt();
+				void pausert();
+				void stoprt();
 				// actors
 				void a2a(int a1, int a2);
-				void aget(int a, int aval);
-				void aset(int a, int aval, int value);
-				void aspd(int a, int speed, int angle);
+				void aspd(int a, void speed, int angle);
 				char axy(int x, int y);
 				void amove(int actor);
 				void adraw(int actor);
@@ -315,20 +346,23 @@ void main(){
 				// particles
 				int partcolor(int startcolor, int endcolor, int steps, int particletype);
 				void parttime(int time, int timediff);
-				void partdir(int gravity, int dirangle1, int dirangle2, int speed);
+				void partdir(void gravity, int dirangle1, int dirangle2, void speed);
 				void partset(int x, int y, int partcolor, int radius, int count);
 				void partdraw();
 				// timers
 				int tmrget(int timer);
 				void tmrset(int timer, int time);
 				// memory
-				void memset(char *to, char val, int num);
+				void memset(char *addr, char val, int num);
 				void memcpy(char *to, char *from, int num);
+				void memconv(char *addr, char *table, int num);
 				char peek(char *adr);
 				int peek2(int *adr);
 				void poke(char *adr, char val);
 				void poke2(int *adr, int val);
 				void setstack(char *adr);
+				void setdrwaddr(char *adr);
+				void rstdrwaddr();
 				*int malloc(int);
 				void free(*int);
 				// game loop functions
@@ -353,10 +387,10 @@ void main(){
 		</svg>
 	</a>
 	<style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
-	<script type="text/javascript" src="FileSaver.js"></script>
+	<script type="text/javascript" src="filesave.js"></script>
 	<script type="text/javascript" src="asm.js"></script>
 	<script type="text/javascript" src="cpu.js"></script>
-	<script type="text/javascript" src="spriteEditor.js"></script>
+	<script type="text/javascript" src="spredit.js"></script>
 	<script type="text/javascript" src="compiler.js"></script>
 	<script type="text/javascript" src="font.js"></script>
 	<script type="text/javascript" src="ui.js"></script>
